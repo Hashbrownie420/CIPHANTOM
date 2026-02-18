@@ -25,6 +25,9 @@ const OWNER_DIR = path.resolve(__dirname, "..");
 const OWNER_PACKAGE_JSON = path.resolve(OWNER_DIR, "package.json");
 const PROJECT_ROOT = path.resolve(OWNER_DIR, "..");
 const AVATAR_DIR = path.resolve(PROJECT_ROOT, "data", "avatars");
+const DB_FILE = path.resolve(PROJECT_ROOT, "data", "cipherphantom.db");
+const DB_BACKUP_DIR = path.resolve(PROJECT_ROOT, "data", "backups");
+const DB_BACKUP_KEEP = Math.max(1, Number(process.env.OWNER_DB_BACKUP_KEEP || 20));
 const ANDROID_LOCAL_PROPERTIES = path.resolve(OWNER_DIR, "android", "local.properties");
 const DEFAULT_APK_FILE = path.resolve(
   OWNER_DIR,
@@ -237,6 +240,84 @@ function resolveApkFilePath(props = {}) {
   return candidate || process.env.OWNER_APK_FILE || DEFAULT_APK_FILE;
 }
 
+function ensureDir(dir) {
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+}
+
+function listDbBackups(limit = 50) {
+  ensureDir(DB_BACKUP_DIR);
+  return fs
+    .readdirSync(DB_BACKUP_DIR)
+    .filter((name) => name.endsWith(".db"))
+    .map((name) => {
+      const full = path.join(DB_BACKUP_DIR, name);
+      const st = fs.statSync(full);
+      return {
+        name,
+        sizeBytes: st.size,
+        createdAt: st.mtime.toISOString(),
+      };
+    })
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+    .slice(0, Math.max(1, Math.min(500, Number(limit) || 50)));
+}
+
+function rotateDbBackups(keep = DB_BACKUP_KEEP) {
+  const files = listDbBackups(5000);
+  const drop = files.slice(Math.max(1, keep));
+  for (const f of drop) {
+    try {
+      fs.unlinkSync(path.join(DB_BACKUP_DIR, f.name));
+    } catch {
+      // ignore
+    }
+  }
+}
+
+async function createDbBackup() {
+  ensureDir(DB_BACKUP_DIR);
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const fileName = `cipherphantom-${stamp}.db`;
+  const full = path.join(DB_BACKUP_DIR, fileName);
+  const esc = full.replace(/'/g, "''");
+
+  // Make sure WAL content is flushed before backup snapshot.
+  await db.exec("PRAGMA wal_checkpoint(FULL)");
+  await db.exec(`VACUUM INTO '${esc}'`);
+
+  const st = fs.statSync(full);
+  rotateDbBackups(DB_BACKUP_KEEP);
+  return {
+    name: fileName,
+    sizeBytes: st.size,
+    createdAt: st.mtime.toISOString(),
+    keep: DB_BACKUP_KEEP,
+  };
+}
+
+function sendDbBackup(res, fileName) {
+  const safeName = String(fileName || "").trim();
+  if (!/^[a-zA-Z0-9._-]+\.db$/.test(safeName)) {
+    return json(res, 400, { ok: false, error: "Ungültiger Backup-Dateiname" });
+  }
+  const full = path.resolve(DB_BACKUP_DIR, safeName);
+  if (!full.startsWith(DB_BACKUP_DIR)) {
+    return json(res, 400, { ok: false, error: "Bad path" });
+  }
+  if (!fs.existsSync(full) || fs.statSync(full).isDirectory()) {
+    return json(res, 404, { ok: false, error: "Backup nicht gefunden" });
+  }
+  const content = fs.readFileSync(full);
+  res.writeHead(200, {
+    "Content-Type": "application/octet-stream",
+    "Content-Length": content.length,
+    "Content-Disposition": `attachment; filename="${safeName}"`,
+    "Cache-Control": "no-store",
+    "X-Content-Type-Options": "nosniff",
+  });
+  res.end(content);
+}
+
 function getApkIntegrityMeta(apkFile) {
   try {
     if (!fs.existsSync(apkFile) || fs.statSync(apkFile).isDirectory()) {
@@ -256,6 +337,16 @@ async function checkDbHealth() {
     return { ok: Number(row?.ok || 0) === 1 };
   } catch (err) {
     return { ok: false, error: String(err?.message || err || "db check failed") };
+  }
+}
+
+async function runDbIntegrityCheck() {
+  try {
+    const row = await db.get("PRAGMA integrity_check");
+    const result = String(row?.integrity_check || "").trim();
+    return { ok: result.toLowerCase() === "ok", result: result || "unknown" };
+  } catch (err) {
+    return { ok: false, result: String(err?.message || err || "integrity check failed") };
   }
 }
 
@@ -1027,6 +1118,44 @@ const server = http.createServer(async (req, res) => {
         if (!session) return;
         const tail = decodeURIComponent(pathname.replace("/api/db/", "")).trim();
         const parts = tail.split("/").filter(Boolean);
+        const root = parts[0] || "";
+        if (req.method === "GET" && root === "maintenance" && parts[1] === "check") {
+          const check = await runDbIntegrityCheck();
+          return json(res, check.ok ? 200 : 500, { ok: check.ok, integrity: check.result });
+        }
+        if (req.method === "GET" && root === "maintenance") {
+          let dbStat = null;
+          try {
+            const st = fs.statSync(DB_FILE);
+            dbStat = { sizeBytes: st.size, updatedAt: st.mtime.toISOString() };
+          } catch {
+            dbStat = null;
+          }
+          return json(res, 200, {
+            ok: true,
+            dbFile: DB_FILE,
+            db: dbStat,
+            backupDir: DB_BACKUP_DIR,
+            keep: DB_BACKUP_KEEP,
+            backups: listDbBackups(20),
+          });
+        }
+        if (req.method === "POST" && root === "backup") {
+          const out = await createDbBackup();
+          return json(res, 200, { ok: true, backup: out });
+        }
+        if (req.method === "GET" && root === "backups" && parts.length === 1) {
+          const limit = Math.min(200, Math.max(1, Number(url.searchParams.get("limit") || 50)));
+          return json(res, 200, {
+            ok: true,
+            backupDir: DB_BACKUP_DIR,
+            keep: DB_BACKUP_KEEP,
+            rows: listDbBackups(limit),
+          });
+        }
+        if (req.method === "GET" && root === "backups" && parts.length === 2) {
+          return sendDbBackup(res, parts[1]);
+        }
         const table = parts[0] || "";
         const mode = parts[1] || "";
         const rowid = parts[2] || "";

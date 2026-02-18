@@ -96,6 +96,16 @@ Optional fuer robusteren Start/Update-Pruefung in der APK:
 - Prometheus-Format:
   - `GET /metrics`
 
+## DB-Wartung (Punkt 7)
+- Backup-Status/Übersicht (auth): `GET /api/db/maintenance`
+- Integritätscheck (auth): `GET /api/db/maintenance/check`
+- Backup erstellen (auth): `POST /api/db/backup`
+- Backup-Liste (auth): `GET /api/db/backups?limit=50`
+- Backup herunterladen (auth): `GET /api/db/backups/<datei>.db`
+
+Env:
+- `OWNER_DB_BACKUP_KEEP=20` (wie viele Backups behalten werden)
+
 ## Struktur
 - `web/` UI
 - `api/` HTTP-API + statischer Webserver
