@@ -68,10 +68,13 @@
           </details>
 
           <details class="menuSection">
-            <summary>Kommunikation</summary>
+            <summary>Bot Hub</summary>
             <div class="menuSub">
+              <button data-tab="botctl">Bot-Steuerung</button>
               <button data-tab="msg">Direktnachricht</button>
               <button data-tab="broadcast">Broadcast-Zentrale</button>
+              <button data-tab="botcomposer">Template-Studio</button>
+              <button data-tab="botdiag">Bot-Diagnose</button>
             </div>
           </details>
 
@@ -180,6 +183,32 @@
             <p id="broadcastMsg" class="msg"></p>
           </div>
 
+          <div id="tab-botcomposer" class="tab hidden">
+            <h3>Template-Studio</h3>
+            <p class="tabLead">Wiederverwendbare Broadcast-Vorlagen speichern, laden und direkt senden.</p>
+            <section class="sectionCard">
+              <div class="row">
+                <input id="botTplNameInput" type="text" placeholder="Vorlagenname" />
+                <select id="botTplSelect"></select>
+                <button id="botTplLoadBtn">Laden</button>
+                <button id="botTplSaveBtn">Speichern</button>
+                <button id="botTplDeleteBtn" class="danger">Löschen</button>
+              </div>
+              <div class="row">
+                <select id="botTplScopeSelect">
+                  <option value="users">Alle User</option>
+                  <option value="groups">Alle Gruppen</option>
+                  <option value="all">User + Gruppen</option>
+                </select>
+              </div>
+              <textarea id="botTplTextInput" rows="5" placeholder="Vorlagentext für Broadcast"></textarea>
+              <div class="row">
+                <button id="botTplSendBtn">Vorlage senden</button>
+              </div>
+            </section>
+            <p id="botComposerMsg" class="msg"></p>
+          </div>
+
           <div id="tab-outbox" class="tab hidden">
             <h3>Outbox-Warteschlange</h3>
             <p class="tabLead">Versandstatus und Fehler in der Nachrichtenwarteschlange überwachen.</p>
@@ -262,6 +291,24 @@
             </section>
             <section class="sectionCard">
               <div id="botLogsWrap" class="logsBox"></div>
+            </section>
+          </div>
+
+          <div id="tab-botdiag" class="tab hidden">
+            <h3>Bot-Diagnose</h3>
+            <p class="tabLead">Fehler-/Warnanalyse aus Bot-Logs inklusive schneller Zustandsübersicht.</p>
+            <section class="sectionCard">
+              <div class="row">
+                <input id="botDiagLinesInput" type="number" min="50" max="800" value="220" />
+                <button id="botDiagRefreshBtn">Diagnose aktualisieren</button>
+              </div>
+            </section>
+            <p id="botDiagMsg" class="msg"></p>
+            <section class="sectionCard">
+              <div id="botDiagStatsWrap" class="infoBox"></div>
+            </section>
+            <section class="sectionCard">
+              <div id="botDiagIssuesWrap" class="logsBox"></div>
             </section>
           </div>
 

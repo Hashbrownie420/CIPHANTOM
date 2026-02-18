@@ -1,7 +1,7 @@
 let token = null;
 let infoAutoTimer = null;
 let processAutoTimer = null;
-const TABS = ["db", "dbform", "ban", "msg", "broadcast", "outbox", "dbinsight", "dbexport", "botctl", "appctl", "admin", "profile", "info", "forge"];
+const TABS = ["db", "dbform", "ban", "msg", "broadcast", "outbox", "dbinsight", "dbexport", "botctl", "botcomposer", "botdiag", "appctl", "admin", "profile", "info", "forge"];
 let infoLoading = false;
 const processLoading = { bot: false, app: false };
 let lastInfoPayload = "";
@@ -9,6 +9,7 @@ const lastProcessPayload = { bot: "", app: "" };
 let currentDbRows = [];
 let forgeRunId = 0;
 let dbExportRowsCache = [];
+const BOT_TEMPLATES_KEY = "owner_bot_templates_v1";
 
 const $ = (id) => document.getElementById(id);
 
@@ -727,6 +728,89 @@ async function sendBroadcastTool() {
   }
 }
 
+function readBotTemplates() {
+  try {
+    const raw = localStorage.getItem(BOT_TEMPLATES_KEY);
+    const parsed = JSON.parse(raw || "[]");
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeBotTemplates(rows) {
+  localStorage.setItem(BOT_TEMPLATES_KEY, JSON.stringify(rows || []));
+}
+
+function refreshBotTemplateSelect() {
+  const rows = readBotTemplates();
+  const sel = $("botTplSelect");
+  if (!sel) return;
+  sel.innerHTML = rows
+    .map((r, i) => `<option value="${i}">${escapeHtml(r.name || `Vorlage ${i + 1}`)}</option>`)
+    .join("");
+}
+
+function saveBotTemplate() {
+  const name = $("botTplNameInput").value.trim();
+  const text = $("botTplTextInput").value.trim();
+  const scope = $("botTplScopeSelect").value;
+  if (!name || !text) {
+    setMsg("botComposerMsg", "Name und Text sind erforderlich.");
+    return;
+  }
+  const rows = readBotTemplates();
+  const idx = rows.findIndex((r) => String(r.name || "").toLowerCase() === name.toLowerCase());
+  const item = { name, text, scope, updatedAt: new Date().toISOString() };
+  if (idx >= 0) rows[idx] = item;
+  else rows.unshift(item);
+  writeBotTemplates(rows.slice(0, 50));
+  refreshBotTemplateSelect();
+  setMsg("botComposerMsg", `Vorlage gespeichert: ${name}`, true);
+}
+
+function loadBotTemplate() {
+  const rows = readBotTemplates();
+  const idx = Number($("botTplSelect").value || -1);
+  if (!Number.isFinite(idx) || idx < 0 || idx >= rows.length) {
+    setMsg("botComposerMsg", "Bitte Vorlage auswählen.");
+    return;
+  }
+  const row = rows[idx];
+  $("botTplNameInput").value = row.name || "";
+  $("botTplTextInput").value = row.text || "";
+  $("botTplScopeSelect").value = row.scope || "users";
+  setMsg("botComposerMsg", `Vorlage geladen: ${row.name || "-"}`, true);
+}
+
+function deleteBotTemplate() {
+  const rows = readBotTemplates();
+  const idx = Number($("botTplSelect").value || -1);
+  if (!Number.isFinite(idx) || idx < 0 || idx >= rows.length) {
+    setMsg("botComposerMsg", "Bitte Vorlage auswählen.");
+    return;
+  }
+  const [removed] = rows.splice(idx, 1);
+  writeBotTemplates(rows);
+  refreshBotTemplateSelect();
+  setMsg("botComposerMsg", `Vorlage gelöscht: ${removed?.name || "-"}`, true);
+}
+
+async function sendBotTemplate() {
+  try {
+    const scope = $("botTplScopeSelect").value;
+    const message = $("botTplTextInput").value.trim();
+    if (!message) throw new Error("Bitte Vorlagentext eingeben.");
+    const data = await api("/api/broadcast", {
+      method: "POST",
+      body: JSON.stringify({ scope, message }),
+    });
+    setMsg("botComposerMsg", `Vorlage gesendet (${data.scope})`, true);
+  } catch (err) {
+    setMsg("botComposerMsg", err.message || "Senden fehlgeschlagen");
+  }
+}
+
 async function loadOutbox() {
   try {
     const status = $("outboxStatus").value;
@@ -736,6 +820,49 @@ async function loadOutbox() {
     setMsg("outboxMsg", `Einträge: ${data.rows.length}`, true);
   } catch (err) {
     setMsg("outboxMsg", err.message || "Outbox konnte nicht geladen werden");
+  }
+}
+
+function collectIssueLines(text) {
+  return stripAnsi(text || "")
+    .split("\n")
+    .map((l) => l.trim())
+    .filter(Boolean)
+    .filter((l) => /(error|warn|exception|timeout|failed|disconnect|reconnect|fatal)/i.test(l))
+    .slice(-120);
+}
+
+async function loadBotDiagnostics() {
+  try {
+    const lines = Math.max(50, Math.min(800, Number($("botDiagLinesInput").value || 220)));
+    setMsg("botDiagMsg", "Diagnose läuft...");
+    const [statusRes, logsRes] = await Promise.all([
+      api("/api/process/bot/status"),
+      api(`/api/process/bot/logs?lines=${lines}`),
+    ]);
+    const issues = [...collectIssueLines(logsRes.out), ...collectIssueLines(logsRes.err)];
+    const unique = [...new Set(issues)].slice(-80);
+    const warnCount = unique.filter((l) => /warn/i.test(l)).length;
+    const errCount = unique.filter((l) => /(error|failed|exception|fatal|timeout)/i.test(l)).length;
+    const s = statusRes.status || {};
+    $("botDiagStatsWrap").innerHTML = `
+      <div class="infoGrid">
+        <div class="infoCard">${kvRow("Status", s.status || "-")}</div>
+        <div class="infoCard">${kvRow("PID", s.pid ?? "-")}</div>
+        <div class="infoCard">${kvRow("Uptime", fmtUptime(s.uptimeSec || 0))}</div>
+        <div class="infoCard">${kvRow("Neustarts", s.restarts ?? "-")}</div>
+        <div class="infoCard">${kvRow("Warnungen", warnCount)}</div>
+        <div class="infoCard">${kvRow("Fehler", errCount)}</div>
+      </div>
+    `;
+    $("botDiagIssuesWrap").textContent = unique.length
+      ? unique.join("\n")
+      : "Keine Warnungen/Fehler in den letzten Logs gefunden.";
+    setMsg("botDiagMsg", "Diagnose abgeschlossen.", true);
+  } catch (err) {
+    $("botDiagStatsWrap").innerHTML = "";
+    $("botDiagIssuesWrap").textContent = "";
+    setMsg("botDiagMsg", err.message || "Diagnose fehlgeschlagen.");
   }
 }
 
@@ -1422,6 +1549,11 @@ function bind() {
   $("loadBansBtn").addEventListener("click", loadBans);
   $("sendMsgBtn").addEventListener("click", sendMessageTool);
   $("sendBroadcastBtn").addEventListener("click", sendBroadcastTool);
+  $("botTplSaveBtn").addEventListener("click", saveBotTemplate);
+  $("botTplLoadBtn").addEventListener("click", loadBotTemplate);
+  $("botTplDeleteBtn").addEventListener("click", deleteBotTemplate);
+  $("botTplSendBtn").addEventListener("click", sendBotTemplate);
+  $("botDiagRefreshBtn").addEventListener("click", loadBotDiagnostics);
   $("loadOutboxBtn").addEventListener("click", loadOutbox);
   $("dbInsightRefreshBtn").addEventListener("click", loadDbInsights);
   $("dbExportPreviewBtn").addEventListener("click", previewDbExport);
@@ -1510,6 +1642,16 @@ function bind() {
         updateInfoAutoRefresh(false);
         updateProcessAutoRefresh(null);
       }
+      if (tab === "botcomposer") {
+        updateInfoAutoRefresh(false);
+        updateProcessAutoRefresh(null);
+        refreshBotTemplateSelect();
+      }
+      if (tab === "botdiag") {
+        updateInfoAutoRefresh(false);
+        updateProcessAutoRefresh(null);
+        await loadBotDiagnostics();
+      }
       if (tab === "outbox") {
         updateInfoAutoRefresh(false);
         updateProcessAutoRefresh(null);
@@ -1576,6 +1718,7 @@ async function boot() {
     showTab("db");
     await loadTables();
     await loadCurrentTable();
+    refreshBotTemplateSelect();
     updateInfoAutoRefresh(false);
     updateProcessAutoRefresh(null);
     setMenuOpen(false);
