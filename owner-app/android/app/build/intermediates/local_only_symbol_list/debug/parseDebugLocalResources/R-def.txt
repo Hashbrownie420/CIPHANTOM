@@ -1,0 +1,21 @@
+R_DEF: Internal format may change without notice
+local
+color black
+color white
+drawable ic_launcher_background
+drawable ic_launcher_foreground
+id errorBox
+id loading
+id retryBtn
+id webView
+layout activity_main
+mipmap ic_launcher
+mipmap ic_launcher_round
+string app_name
+string btn_open_update
+string btn_retry
+string err_connect
+string err_unknown
+string err_update_required
+style Theme.CipherphantomOwner
+xml network_security_config

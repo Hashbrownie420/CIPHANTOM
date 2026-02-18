@@ -1,0 +1,219 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CIPHERPHANTOM Owner Tools</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <div class="wrap">
+    <header class="head">
+      <pre class="brandbox">+-----------------------------+
+|     CIPHERPHANTOM OWNER    |
++-----------------------------+</pre>
+    </header>
+
+    <section id="loginCard" class="card">
+      <h2>Owner Login</h2>
+      <p class="muted">Willkommen im CIPHERPHANTOM Owner Panel.</p>
+      <input id="username" type="text" placeholder="Username" autocomplete="username" />
+      <input id="password" type="password" placeholder="Passwort" autocomplete="current-password" />
+      <button id="loginBtn">Einloggen</button>
+      <p id="loginMsg" class="msg"></p>
+    </section>
+
+    <section id="appCard" class="card hidden appCard">
+      <div class="topbar">
+        <div>
+          <h2 class="topTitle">Owner Control Center</h2>
+          <p class="muted">Schneller Zugriff auf Verwaltung, Prozesse und Kommunikation.</p>
+        </div>
+        <button id="menuToggle" class="iconBtn" aria-label="Menü öffnen">☰</button>
+      </div>
+
+      <div id="menuBackdrop" class="menuBackdrop hidden"></div>
+
+      <div class="appShell">
+        <aside id="menuDrawer" class="menu menuDrawer">
+          <button id="menuClose" class="iconBtn menuCloseBtn" aria-label="Menü schließen">✕</button>
+          <div class="menuHead">
+            <strong>Menü</strong>
+          </div>
+
+          <div class="menuSection">
+            <h4>📊 Übersicht</h4>
+            <button data-tab="info">🧠 Server/Bot Infos</button>
+            <button data-tab="profile">👤 Profil</button>
+          </div>
+
+          <div class="menuSection">
+            <h4>🗄️ Daten</h4>
+            <button data-tab="db">📚 Datenbanken</button>
+            <button data-tab="dbform">📝 DB Formular</button>
+            <button data-tab="outbox">📬 Outbox Status</button>
+          </div>
+
+          <div class="menuSection">
+            <h4>📣 Kommunikation</h4>
+            <button data-tab="msg">💬 Nachrichten Tool</button>
+            <button data-tab="broadcast">📡 Broadcast</button>
+          </div>
+
+          <div class="menuSection">
+            <h4>🛡️ Moderation</h4>
+            <button data-tab="ban">🚫 Nutzer bannen</button>
+          </div>
+
+          <div class="menuSection">
+            <h4>⚙️ Prozesse</h4>
+            <button data-tab="botctl">🤖 Bot Kontrolle</button>
+            <button data-tab="appctl">📱 App Kontrolle</button>
+          </div>
+
+          <div class="menuSection">
+            <h4>🔒 Konto</h4>
+            <button id="logoutBtn" class="danger">⎋ Logout</button>
+          </div>
+        </aside>
+
+        <main class="panelArea">
+      <div id="tab-db" class="tab hidden">
+        <h3>Datenbanken anzeigen</h3>
+        <div class="row">
+          <select id="tableSelect"></select>
+          <input id="dbSearchInput" type="text" placeholder="Suche in Tabelle..." />
+          <input id="limitInput" type="number" min="1" max="500" value="50" />
+          <button id="loadTableBtn">Laden</button>
+        </div>
+        <p id="dbMsg" class="msg"></p>
+        <div id="tableWrap" class="tableWrap"></div>
+      </div>
+
+      <div id="tab-dbform" class="tab hidden">
+        <h3>Datenbank Formular</h3>
+        <div class="row">
+          <select id="dbFormTableSelect"></select>
+          <input id="dbFormRowIdInput" type="number" min="1" placeholder="Row-ID (für Laden/Update/Löschen)" />
+          <button id="dbFormLoadBtn">Datensatz laden</button>
+        </div>
+        <div id="dbFormFields" class="row2"></div>
+        <div class="row">
+          <button id="dbFormCreateBtn">Eintrag hinzufügen</button>
+          <button id="dbFormUpdateBtn">Eintrag aktualisieren</button>
+          <button id="dbFormDeleteBtn" class="danger">Eintrag löschen</button>
+        </div>
+        <p id="dbFormMsg" class="msg"></p>
+      </div>
+
+      <div id="tab-ban" class="tab hidden">
+        <h3>Nutzer bannen</h3>
+        <div class="row2">
+          <input id="banPhone" type="text" placeholder="Handynummer (z. B. 49176...)" />
+          <input id="banDuration" type="number" min="0" placeholder="Dauer in Stunden (0 = permanent)" />
+          <input id="banReason" type="text" placeholder="Grund" />
+        </div>
+        <div class="row">
+          <button id="banBtn" class="danger">Bannen</button>
+          <button id="unbanBtn">Unban</button>
+          <button id="loadBansBtn">Sperrliste laden</button>
+        </div>
+        <p id="banMsg" class="msg"></p>
+        <div id="bansWrap" class="tableWrap"></div>
+      </div>
+
+      <div id="tab-msg" class="tab hidden">
+        <h3>Nachrichten Tool</h3>
+        <div class="row2">
+          <input id="msgPhone" type="text" placeholder="Handynummer (z. B. 49176...)" />
+          <input id="msgText" type="text" placeholder="Nachricht an die Nummer" />
+        </div>
+        <div class="row">
+          <button id="sendMsgBtn">Nachricht senden</button>
+        </div>
+        <p id="msgToolMsg" class="msg"></p>
+      </div>
+
+      <div id="tab-broadcast" class="tab hidden">
+        <h3>Broadcast</h3>
+        <div class="row2">
+          <select id="broadcastScope">
+            <option value="users">Alle User</option>
+            <option value="groups">Alle Gruppen</option>
+            <option value="all">User + Gruppen</option>
+          </select>
+          <input id="broadcastText" type="text" placeholder="Broadcast-Nachricht" />
+        </div>
+        <div class="row">
+          <button id="sendBroadcastBtn" class="danger">Broadcast senden</button>
+        </div>
+        <p id="broadcastMsg" class="msg"></p>
+      </div>
+
+      <div id="tab-outbox" class="tab hidden">
+        <h3>Outbox Status</h3>
+        <div class="row">
+          <select id="outboxStatus">
+            <option value="all">Alle</option>
+            <option value="pending">Pending</option>
+            <option value="sent">Sent</option>
+            <option value="failed">Failed</option>
+          </select>
+          <input id="outboxLimit" type="number" min="1" max="500" value="100" />
+          <button id="loadOutboxBtn">Aktualisieren</button>
+        </div>
+        <p id="outboxMsg" class="msg"></p>
+        <div id="outboxWrap" class="tableWrap"></div>
+      </div>
+
+      <div id="tab-botctl" class="tab hidden">
+        <h3>WhatsApp Bot Steuerung</h3>
+        <div class="row">
+          <button id="botStartBtn">Start</button>
+          <button id="botStopBtn" class="danger">Stop</button>
+          <button id="botRestartBtn">Restart</button>
+          <button id="botRefreshBtn">Status/Logs laden</button>
+        </div>
+        <p id="botCtlMsg" class="msg"></p>
+        <div id="botStatusWrap" class="infoBox"></div>
+        <div id="botLogsWrap" class="logsBox"></div>
+      </div>
+
+      <div id="tab-appctl" class="tab hidden">
+        <h3>Owner App Steuerung</h3>
+        <div class="row">
+          <button id="appStartBtn">Start</button>
+          <button id="appStopBtn" class="danger">Stop</button>
+          <button id="appRestartBtn">Restart</button>
+          <button id="appRefreshBtn">Status/Logs laden</button>
+        </div>
+        <p id="appCtlMsg" class="msg"></p>
+        <div id="appStatusWrap" class="infoBox"></div>
+        <div id="appLogsWrap" class="logsBox"></div>
+      </div>
+
+      <div id="tab-profile" class="tab hidden">
+        <h3>Owner Profil</h3>
+        <div class="row">
+          <button id="profileRefreshBtn">Profil laden</button>
+          <button id="profileBioSaveBtn">Bio speichern</button>
+          <button id="profileBioClearBtn" class="danger">Bio löschen</button>
+        </div>
+        <textarea id="profileBioInput" rows="3" placeholder="Eigene Profil-Biografie"></textarea>
+        <p id="profileMsg" class="msg"></p>
+        <div id="profileWrap" class="infoBox"></div>
+      </div>
+
+      <div id="tab-info" class="tab hidden">
+        <h3>Informationen zum Server und Bot</h3>
+        <p id="infoMsg" class="msg"></p>
+        <div id="infoBox" class="infoBox"></div>
+      </div>
+        </main>
+      </div>
+    </section>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>
