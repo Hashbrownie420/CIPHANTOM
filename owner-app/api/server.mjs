@@ -250,6 +250,70 @@ function getApkIntegrityMeta(apkFile) {
   }
 }
 
+async function checkDbHealth() {
+  try {
+    const row = await db.get("SELECT 1 AS ok");
+    return { ok: Number(row?.ok || 0) === 1 };
+  } catch (err) {
+    return { ok: false, error: String(err?.message || err || "db check failed") };
+  }
+}
+
+async function checkPm2Health() {
+  const listRes = await getPm2List();
+  if (!listRes.ok) {
+    return { ok: false, error: listRes.error || "pm2 check failed", online: 0, total: 0 };
+  }
+  const list = listRes.list || [];
+  const relevant = list.filter((p) => ["cipherphantom-bot", "cipherphantom-owner-app", "cipherphantom-owner-remote"].includes(p?.name));
+  const online = relevant.filter((p) => String(p?.pm2_env?.status || "") === "online").length;
+  return { ok: online >= 1, online, total: relevant.length };
+}
+
+async function checkDiskHealth(baseDir) {
+  try {
+    const { stdout } = await execFileAsync("df", ["-Pk", baseDir], { maxBuffer: 1024 * 1024 });
+    const lines = String(stdout || "").trim().split(/\r?\n/);
+    if (lines.length < 2) return { ok: false, error: "df parse failed" };
+    const parts = lines[1].trim().split(/\s+/);
+    const availableKb = Number(parts[3] || 0);
+    const availableBytes = availableKb * 1024;
+    const minFreeBytes = 256 * 1024 * 1024; // 256MB
+    return {
+      ok: availableBytes >= minFreeBytes,
+      availableBytes,
+      minFreeBytes,
+    };
+  } catch (err) {
+    return { ok: false, error: String(err?.message || err || "disk check failed") };
+  }
+}
+
+async function collectHealthSnapshot() {
+  const dbHealth = await checkDbHealth();
+  const pm2Health = await checkPm2Health();
+  const diskHealth = await checkDiskHealth(PROJECT_ROOT);
+  const rss = process.memoryUsage().rss;
+  const load1 = os.loadavg()[0] || 0;
+  const serviceOk = dbHealth.ok && diskHealth.ok;
+
+  return {
+    ok: serviceOk,
+    service: "cipherphantom-owner-app",
+    ts: new Date().toISOString(),
+    checks: {
+      db: dbHealth,
+      pm2: pm2Health,
+      disk: diskHealth,
+    },
+    runtime: {
+      uptimeSec: Math.floor(process.uptime()),
+      rssBytes: rss,
+      loadAvg1m: Number(load1.toFixed(2)),
+    },
+  };
+}
+
 function sendStatic(req, res) {
   const full = safeFilePath(new URL(req.url, "http://localhost").pathname);
   if (!full) return json(res, 400, { ok: false, error: "Bad path" });
@@ -832,14 +896,44 @@ const server = http.createServer(async (req, res) => {
     const url = new URL(req.url, `http://${req.headers.host}`);
     const pathname = (url.pathname || "/").replace(/\/+$/g, "") || "/";
 
+    if (req.method === "GET" && pathname === "/metrics") {
+      const h = await collectHealthSnapshot();
+      const lines = [
+        "# HELP owner_app_up Owner app health snapshot (1=ok,0=fail)",
+        "# TYPE owner_app_up gauge",
+        `owner_app_up ${h.ok ? 1 : 0}`,
+        "# HELP owner_app_db_up Database check (1=ok,0=fail)",
+        "# TYPE owner_app_db_up gauge",
+        `owner_app_db_up ${h.checks.db.ok ? 1 : 0}`,
+        "# HELP owner_app_pm2_up PM2 summary check (1=ok,0=fail)",
+        "# TYPE owner_app_pm2_up gauge",
+        `owner_app_pm2_up ${h.checks.pm2.ok ? 1 : 0}`,
+        "# HELP owner_app_disk_up Disk free check (1=ok,0=fail)",
+        "# TYPE owner_app_disk_up gauge",
+        `owner_app_disk_up ${h.checks.disk.ok ? 1 : 0}`,
+        "# HELP owner_app_process_rss_bytes Node RSS memory bytes",
+        "# TYPE owner_app_process_rss_bytes gauge",
+        `owner_app_process_rss_bytes ${h.runtime.rssBytes}`,
+        "# HELP owner_app_process_uptime_seconds Node uptime in seconds",
+        "# TYPE owner_app_process_uptime_seconds gauge",
+        `owner_app_process_uptime_seconds ${h.runtime.uptimeSec}`,
+        "# HELP owner_app_pm2_online Number of relevant PM2 processes online",
+        "# TYPE owner_app_pm2_online gauge",
+        `owner_app_pm2_online ${Number(h.checks.pm2.online || 0)}`,
+      ];
+      res.writeHead(200, {
+        "Content-Type": "text/plain; version=0.0.4; charset=utf-8",
+        "Cache-Control": "no-store",
+      });
+      res.end(`${lines.join("\n")}\n`);
+      return;
+    }
+
     if (pathname.startsWith("/api/")) {
       // Public endpoints for bootstrap/update-check (no login required)
       if (req.method === "GET" && pathname === "/api/healthz") {
-        return json(res, 200, {
-          ok: true,
-          service: "cipherphantom-owner-app",
-          ts: new Date().toISOString(),
-        });
+        const health = await collectHealthSnapshot();
+        return json(res, health.ok ? 200 : 503, health);
       }
 
       if (req.method === "GET" && pathname === "/api/app-meta") {

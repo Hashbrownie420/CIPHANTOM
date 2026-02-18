@@ -89,6 +89,13 @@ Optional fuer robusteren Start/Update-Pruefung in der APK:
 - Session-TTL (Stunden) per Env:
   - `OWNER_SESSION_TTL_HOURS=12`
 
+## Observability
+- Erweiterter Healthcheck: `GET /api/healthz`
+  - liefert DB-/PM2-/Disk-Checks sowie Runtime-Stats
+  - HTTP `200` wenn gesund, sonst `503`
+- Prometheus-Format:
+  - `GET /metrics`
+
 ## Struktur
 - `web/` UI
 - `api/` HTTP-API + statischer Webserver
