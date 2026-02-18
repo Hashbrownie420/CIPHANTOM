@@ -1,7 +1,6 @@
 let token = null;
 let infoAutoTimer = null;
 let processAutoTimer = null;
-let adminLiveSource = null;
 const TABS = ["db", "dbform", "ban", "msg", "broadcast", "outbox", "botctl", "appctl", "admin", "profile", "info"];
 let infoLoading = false;
 const processLoading = { bot: false, app: false };
@@ -70,14 +69,48 @@ function stripAnsi(text) {
   return String(text || "").replace(/\x1B\[[0-9;]*[A-Za-z]/g, "");
 }
 
+function formatCellValue(value) {
+  if (value == null) return "-";
+  if (typeof value === "boolean") return value ? "true" : "false";
+  if (typeof value === "number") return Number.isFinite(value) ? String(value) : "-";
+  if (typeof value === "object") {
+    try {
+      return JSON.stringify(value);
+    } catch {
+      return String(value);
+    }
+  }
+  const text = String(value).trim();
+  const maybeDate = Date.parse(text);
+  if (!Number.isNaN(maybeDate) && /^\d{4}-\d{2}-\d{2}T/.test(text)) {
+    return new Date(maybeDate).toLocaleString("de-DE");
+  }
+  return text || "-";
+}
+
 function renderTable(rows) {
   if (!rows || rows.length === 0) return "<p style='padding:8px'>Keine Daten</p>";
   const keys = Object.keys(rows[0]);
-  const th = keys.map((k) => `<th>${k}</th>`).join("");
+  const th = ["#", ...keys].map((k) => `<th>${escapeHtml(k)}</th>`).join("");
   const body = rows
-    .map((r) => `<tr>${keys.map((k) => `<td data-label="${k}">${String(r[k] ?? "")}</td>`).join("")}</tr>`)
+    .map((r, idx) => {
+      const rowNo = idx + 1;
+      const cells = keys.map((k) => {
+        const fullText = formatCellValue(r[k]);
+        const clipped = fullText.length > 120 ? `${fullText.slice(0, 117)}...` : fullText;
+        const cellClass = /(^id$|_id$|chat_id|jid|phone|wallet|hash|token)/i.test(k) ? "cellMono" : "";
+        return `<td class="${cellClass}" data-label="${escapeHtml(k)}" title="${escapeHtml(fullText)}">${escapeHtml(clipped)}</td>`;
+      });
+      return `<tr><td data-label="#" class="cellIdx">${rowNo}</td>${cells.join("")}</tr>`;
+    })
     .join("");
-  return `<table class="respTable"><thead><tr>${th}</tr></thead><tbody>${body}</tbody></table>`;
+  return `
+    <div class="tableMeta">${rows.length} Einträge · ${keys.length} Spalten</div>
+    <table class="respTable">
+      <thead><tr>${th}</tr></thead>
+      <tbody>${body}</tbody>
+    </table>
+  `;
 }
 
 function renderDbCards(rows) {
@@ -553,15 +586,6 @@ function renderAdminStatus(data) {
   `;
 }
 
-function renderAdminLogs(payload, key) {
-  const logs = payload?.logs || {};
-  const row = logs[key] || {};
-  const name = row.processName || key;
-  const out = stripAnsi(row.out || "").slice(-9000).trim();
-  const err = stripAnsi(row.err || "").slice(-9000).trim();
-  return `--- ${name} STDOUT ---\n${out || "<leer>"}\n\n--- ${name} STDERR ---\n${err || "<leer>"}\n\n--- AKTUALISIERT ---\n${new Date().toLocaleString("de-DE")}`;
-}
-
 async function loadProcessPanel(target, statusId, logsId, msgId) {
   if (processLoading[target]) return;
   processLoading[target] = true;
@@ -601,27 +625,12 @@ async function processAction(target, action, msgId, statusId, logsId) {
 
 async function loadAdminPanel() {
   try {
-    const [summary, logs] = await Promise.all([
-      api("/api/admin/summary"),
-      api("/api/process/all/logs?lines=80"),
-    ]);
+    const summary = await api("/api/admin/summary");
     $("adminStatusWrap").innerHTML = renderAdminStatus(summary);
-    $("adminBotLogsWrap").textContent = renderAdminLogs(logs, "bot");
-    $("adminAppLogsWrap").textContent = renderAdminLogs(logs, "app");
-    setMsg("adminMsg", "Serverstatus geladen.", true);
+    setMsg("adminMsg", "");
   } catch (err) {
     setMsg("adminMsg", err.message || "Serverstatus konnte nicht geladen werden");
   }
-}
-
-async function runAdminOp(op, args = {}) {
-  const data = await api("/api/admin/op", {
-    method: "POST",
-    body: JSON.stringify({ op, args }),
-  });
-  const out = `OP: ${op}\n\nSTDOUT:\n${data.stdout || "<leer>"}\n\nSTDERR:\n${data.stderr || "<leer>"}`;
-  $("adminOpOutputWrap").textContent = out;
-  return data;
 }
 
 async function loadAdminAlerts() {
@@ -757,33 +766,6 @@ async function createAdminJob() {
   } catch (err) {
     setMsg("adminMsg", err.message || "Job konnte nicht erstellt werden");
   }
-}
-
-function startAdminLiveLogs() {
-  if (adminLiveSource) return;
-  const tokenQ = token ? `&token=${encodeURIComponent(token)}` : "";
-  adminLiveSource = new EventSource(`/api/process/all/stream?lines=80${tokenQ}`);
-  adminLiveSource.addEventListener("logs", (ev) => {
-    try {
-      const data = JSON.parse(ev.data || "{}");
-      $("adminBotLogsWrap").textContent = renderAdminLogs(data, "bot");
-      $("adminAppLogsWrap").textContent = renderAdminLogs(data, "app");
-    } catch {
-      // ignore
-    }
-  });
-  adminLiveSource.onerror = () => {
-    setMsg("adminMsg", "Live-Logs Verbindung unterbrochen.");
-  };
-  setMsg("adminMsg", "Live-Logs gestartet.", true);
-}
-
-function stopAdminLiveLogs() {
-  if (adminLiveSource) {
-    adminLiveSource.close();
-    adminLiveSource = null;
-  }
-  setMsg("adminMsg", "Live-Logs gestoppt.", true);
 }
 
 async function adminAction(target, action) {
@@ -981,7 +963,6 @@ async function logout() {
   localStorage.removeItem("owner_user");
   updateInfoAutoRefresh(false);
   updateProcessAutoRefresh(null);
-  stopAdminLiveLogs();
   $("appCard").classList.add("hidden");
   $("loginCard").classList.remove("hidden");
 }
@@ -1049,30 +1030,6 @@ function bind() {
   $("adminRefreshBtn").addEventListener("click", loadAdminPanel);
   $("adminRestartBotBtn").addEventListener("click", () => adminAction("bot", "restart"));
   $("adminRestartAppBtn").addEventListener("click", () => adminAction("app", "restart"));
-  $("adminPm2SaveBtn").addEventListener("click", async () => {
-    await runAdminOp("pm2_save");
-    setMsg("adminMsg", "PM2 save ausgeführt.", true);
-  });
-  $("adminPm2ResurrectBtn").addEventListener("click", async () => {
-    await runAdminOp("pm2_resurrect");
-    setMsg("adminMsg", "PM2 resurrect ausgeführt.", true);
-  });
-  $("adminGitPullBtn").addEventListener("click", async () => {
-    await runAdminOp("git_pull");
-    setMsg("adminMsg", "Git pull ausgeführt.", true);
-  });
-  $("adminNpmInstallBtn").addEventListener("click", async () => {
-    await runAdminOp("npm_install");
-    setMsg("adminMsg", "NPM install ausgeführt.", true);
-  });
-  $("adminDeployBtn").addEventListener("click", async () => {
-    await runAdminOp("deploy_now");
-    setMsg("adminMsg", "Deploy gestartet.", true);
-  });
-  $("adminApkBuildBtn").addEventListener("click", async () => {
-    await runAdminOp("apk_build_debug");
-    setMsg("adminMsg", "APK Build gestartet.", true);
-  });
   $("adminRestartAllBtn").addEventListener("click", async () => {
     const ok = await confirmDangerActionWithCountdown(
       "Alles neustarten",
@@ -1098,8 +1055,6 @@ function bind() {
   $("adminFlagsSaveBtn").addEventListener("click", saveAdminFlags);
   $("adminJobCreateBtn").addEventListener("click", createAdminJob);
   $("adminRoleSetBtn").addEventListener("click", setAdminUserRole);
-  $("adminLiveStartBtn").addEventListener("click", startAdminLiveLogs);
-  $("adminLiveStopBtn").addEventListener("click", stopAdminLiveLogs);
   $("adminBackupNowBtn").addEventListener("click", createAdminBackup);
   $("adminBackupCheckBtn").addEventListener("click", checkAdminBackupIntegrity);
   $("adminBackupListBtn").addEventListener("click", loadAdminBackups);
@@ -1116,44 +1071,37 @@ function bind() {
       showTab(tab);
       closeMenuOnMobile();
       if (tab === "db") {
-        stopAdminLiveLogs();
         updateInfoAutoRefresh(false);
         updateProcessAutoRefresh(null);
         await loadTables();
         await loadCurrentTable();
       }
       if (tab === "dbform") {
-        stopAdminLiveLogs();
         updateInfoAutoRefresh(false);
         updateProcessAutoRefresh(null);
         await loadTables();
         await loadDbFormTable();
       }
       if (tab === "ban") {
-        stopAdminLiveLogs();
         updateInfoAutoRefresh(false);
         updateProcessAutoRefresh(null);
         await loadBans();
       }
       if (tab === "msg" || tab === "broadcast") {
-        stopAdminLiveLogs();
         updateInfoAutoRefresh(false);
         updateProcessAutoRefresh(null);
       }
       if (tab === "outbox") {
-        stopAdminLiveLogs();
         updateInfoAutoRefresh(false);
         updateProcessAutoRefresh(null);
         await loadOutbox();
       }
       if (tab === "botctl") {
-        stopAdminLiveLogs();
         updateInfoAutoRefresh(false);
         await loadProcessPanel("bot", "botStatusWrap", "botLogsWrap", "botCtlMsg");
         updateProcessAutoRefresh("bot");
       }
       if (tab === "appctl") {
-        stopAdminLiveLogs();
         updateInfoAutoRefresh(false);
         await loadProcessPanel("app", "appStatusWrap", "appLogsWrap", "appCtlMsg");
         updateProcessAutoRefresh("app");
@@ -1170,13 +1118,11 @@ function bind() {
         await loadAdminBackups();
       }
       if (tab === "profile") {
-        stopAdminLiveLogs();
         updateInfoAutoRefresh(false);
         updateProcessAutoRefresh(null);
         await loadProfile();
       }
       if (tab === "info") {
-        stopAdminLiveLogs();
         updateProcessAutoRefresh(null);
         await loadInfo();
         updateInfoAutoRefresh(true);
