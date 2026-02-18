@@ -62,6 +62,8 @@
               <button data-tab="db">Daten-Explorer</button>
               <button data-tab="dbform">Daten-Editor</button>
               <button data-tab="outbox">Outbox-Warteschlange</button>
+              <button data-tab="dbinsight">Schema-Radar</button>
+              <button data-tab="dbexport">Export-Studio</button>
             </div>
           </details>
 
@@ -196,6 +198,50 @@
             <p id="outboxMsg" class="msg"></p>
             <section class="sectionCard">
               <div id="outboxWrap" class="tableWrap"></div>
+            </section>
+          </div>
+
+          <div id="tab-dbinsight" class="tab hidden">
+            <h3>Schema-Radar</h3>
+            <p class="tabLead">Schnellanalyse der Datenstruktur und Datenqualität über alle Tabellen.</p>
+            <section class="sectionCard">
+              <div class="row">
+                <input id="dbInsightSampleInput" type="number" min="10" max="500" value="150" placeholder="Sample pro Tabelle" />
+                <input id="dbInsightTablesInput" type="number" min="1" max="100" value="20" placeholder="Max. Tabellen" />
+                <button id="dbInsightRefreshBtn">Radar starten</button>
+              </div>
+            </section>
+            <p id="dbInsightMsg" class="msg"></p>
+            <section class="sectionCard">
+              <div id="dbInsightCardsWrap" class="infoBox"></div>
+            </section>
+            <section class="sectionCard">
+              <div id="dbInsightTableWrap" class="tableWrap"></div>
+            </section>
+          </div>
+
+          <div id="tab-dbexport" class="tab hidden">
+            <h3>Export-Studio</h3>
+            <p class="tabLead">Tabellen in JSON oder CSV exportieren, prüfen und direkt herunterladen.</p>
+            <section class="sectionCard">
+              <div class="row">
+                <select id="dbExportTableSelect"></select>
+                <select id="dbExportFormatSelect">
+                  <option value="json">JSON</option>
+                  <option value="csv">CSV</option>
+                  <option value="excel">Excel (.xls)</option>
+                </select>
+                <input id="dbExportMaxRowsInput" type="number" min="1" max="5000" value="1500" placeholder="Max. Zeilen" />
+                <button id="dbExportPreviewBtn">Vorschau</button>
+                <button id="dbExportDownloadBtn">Download</button>
+              </div>
+            </section>
+            <p id="dbExportMsg" class="msg"></p>
+            <section class="sectionCard">
+              <div id="dbExportMetaWrap" class="infoBox"></div>
+            </section>
+            <section class="sectionCard">
+              <div id="dbExportPreviewWrap" class="logsBox"></div>
             </section>
           </div>
 

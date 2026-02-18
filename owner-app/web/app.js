@@ -1,13 +1,14 @@
 let token = null;
 let infoAutoTimer = null;
 let processAutoTimer = null;
-const TABS = ["db", "dbform", "ban", "msg", "broadcast", "outbox", "botctl", "appctl", "admin", "profile", "info", "forge"];
+const TABS = ["db", "dbform", "ban", "msg", "broadcast", "outbox", "dbinsight", "dbexport", "botctl", "appctl", "admin", "profile", "info", "forge"];
 let infoLoading = false;
 const processLoading = { bot: false, app: false };
 let lastInfoPayload = "";
 const lastProcessPayload = { bot: "", app: "" };
 let currentDbRows = [];
 let forgeRunId = 0;
+let dbExportRowsCache = [];
 
 const $ = (id) => document.getElementById(id);
 
@@ -324,6 +325,197 @@ async function loadCurrentTable() {
   const mobile = window.matchMedia("(max-width: 760px)").matches;
   $("tableWrap").innerHTML = mobile ? renderDbCards(currentDbRows) : renderTable(currentDbRows);
   if (mobile) bindDbCardActions();
+}
+
+function fmtPercent(value) {
+  const n = Number(value || 0);
+  if (!Number.isFinite(n)) return "-";
+  return `${n.toFixed(1)}%`;
+}
+
+async function loadDbInsights() {
+  try {
+    const sample = Math.max(10, Math.min(500, Number($("dbInsightSampleInput").value || 150)));
+    const maxTables = Math.max(1, Math.min(100, Number($("dbInsightTablesInput").value || 20)));
+    setMsg("dbInsightMsg", "Analysiere Tabellen...");
+    const t = await api("/api/db/tables");
+    const tables = (t.tables || []).slice(0, maxTables);
+    const rows = [];
+    for (const table of tables) {
+      const d = await api(`/api/db/${encodeURIComponent(table)}?limit=${sample}&offset=0`);
+      const cols = Array.isArray(d.columns) ? d.columns.map((c) => c.name) : [];
+      const items = Array.isArray(d.rows) ? d.rows : [];
+      let total = 0;
+      let filled = 0;
+      let longest = 0;
+      for (const r of items) {
+        for (const c of cols) {
+          total += 1;
+          const v = r[c];
+          const s = String(v ?? "").trim();
+          if (s !== "") {
+            filled += 1;
+            if (s.length > longest) longest = s.length;
+          }
+        }
+      }
+      const completeness = total ? (filled / total) * 100 : 100;
+      rows.push({
+        tabelle: table,
+        spalten: cols.length,
+        sample_zeilen: items.length,
+        komplettheit: fmtPercent(completeness),
+        laengster_wert: longest,
+      });
+    }
+    const avgComp = rows.length
+      ? rows.reduce((a, r) => a + Number(String(r.komplettheit).replace("%", "")), 0) / rows.length
+      : 0;
+    const totalCols = rows.reduce((a, r) => a + Number(r.spalten || 0), 0);
+    $("dbInsightCardsWrap").innerHTML = `
+      <div class="infoGrid">
+        <div class="infoCard">${kvRow("Analysierte Tabellen", rows.length)}</div>
+        <div class="infoCard">${kvRow("Spalten gesamt", totalCols)}</div>
+        <div class="infoCard">${kvRow("Ø Vollständigkeit", fmtPercent(avgComp))}</div>
+        <div class="infoCard">${kvRow("Sample/Tabelle", sample)}</div>
+      </div>
+    `;
+    $("dbInsightTableWrap").innerHTML = renderTable(rows);
+    setMsg("dbInsightMsg", "Schema-Radar abgeschlossen.", true);
+  } catch (err) {
+    $("dbInsightCardsWrap").innerHTML = "";
+    $("dbInsightTableWrap").innerHTML = "";
+    setMsg("dbInsightMsg", err.message || "Schema-Radar fehlgeschlagen.");
+  }
+}
+
+async function ensureDbExportTablesLoaded() {
+  const sel = $("dbExportTableSelect");
+  if (!sel) return;
+  if (sel.options.length > 0) return;
+  const t = await api("/api/db/tables");
+  sel.innerHTML = (t.tables || []).map((name) => `<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`).join("");
+}
+
+function rowsToCsv(rows) {
+  const data = Array.isArray(rows) ? rows : [];
+  if (!data.length) return "";
+  const keys = Object.keys(data[0]);
+  const esc = (v) => {
+    const s = String(v ?? "");
+    if (/[",\n\r]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
+    return s;
+  };
+  const head = keys.map(esc).join(",");
+  const body = data.map((r) => keys.map((k) => esc(formatCellValue(r[k]))).join(",")).join("\n");
+  return `${head}\n${body}`;
+}
+
+function rowsToExcelHtml(rows, title = "Export") {
+  const data = Array.isArray(rows) ? rows : [];
+  if (!data.length) {
+    return `<!doctype html><html><head><meta charset="utf-8"></head><body><table><tr><td>Keine Daten</td></tr></table></body></html>`;
+  }
+  const keys = Object.keys(data[0]);
+  const head = keys.map((k) => `<th>${escapeHtml(k)}</th>`).join("");
+  const body = data
+    .map((r) => `<tr>${keys.map((k) => `<td>${escapeHtml(formatCellValue(r[k]))}</td>`).join("")}</tr>`)
+    .join("");
+  return `<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>${escapeHtml(title)}</title>
+</head>
+<body>
+  <table border="1">
+    <thead><tr>${head}</tr></thead>
+    <tbody>${body}</tbody>
+  </table>
+</body>
+</html>`;
+}
+
+async function fetchTableRowsForExport(table, maxRows) {
+  const safeMax = Math.max(1, Math.min(5000, Number(maxRows || 1500)));
+  const page = 500;
+  const out = [];
+  let offset = 0;
+  while (out.length < safeMax) {
+    const d = await api(`/api/db/${encodeURIComponent(table)}?limit=${page}&offset=${offset}`);
+    const items = Array.isArray(d.rows) ? d.rows : [];
+    out.push(...items);
+    if (items.length < page) break;
+    offset += page;
+  }
+  return out.slice(0, safeMax);
+}
+
+function triggerDownload(fileName, text, mime) {
+  const blob = new Blob([text], { type: mime || "text/plain;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = fileName;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+async function previewDbExport() {
+  try {
+    await ensureDbExportTablesLoaded();
+    const table = $("dbExportTableSelect").value;
+    const format = $("dbExportFormatSelect").value;
+    const maxRows = Number($("dbExportMaxRowsInput").value || 1500);
+    if (!table) throw new Error("Bitte Tabelle wählen.");
+    setMsg("dbExportMsg", "Export-Vorschau wird erstellt...");
+    const rows = await fetchTableRowsForExport(table, maxRows);
+    dbExportRowsCache = rows;
+    const raw = format === "csv"
+      ? rowsToCsv(rows)
+      : format === "excel"
+        ? rowsToCsv(rows)
+        : JSON.stringify(rows, null, 2);
+    $("dbExportPreviewWrap").textContent = raw.slice(0, 25000) + (raw.length > 25000 ? "\n... (gekürzt)" : "");
+    $("dbExportMetaWrap").innerHTML = `
+      ${kvRow("Tabelle", table)}
+      ${kvRow("Format", format === "excel" ? "EXCEL (.XLS)" : format.toUpperCase())}
+      ${kvRow("Zeilen", rows.length)}
+      ${kvRow("Zeichen", raw.length)}
+    `;
+    setMsg("dbExportMsg", "Vorschau bereit.", true);
+  } catch (err) {
+    $("dbExportPreviewWrap").textContent = "";
+    $("dbExportMetaWrap").innerHTML = "";
+    setMsg("dbExportMsg", err.message || "Vorschau fehlgeschlagen.");
+  }
+}
+
+async function downloadDbExport() {
+  try {
+    await ensureDbExportTablesLoaded();
+    const table = $("dbExportTableSelect").value;
+    const format = $("dbExportFormatSelect").value;
+    const maxRows = Number($("dbExportMaxRowsInput").value || 1500);
+    if (!table) throw new Error("Bitte Tabelle wählen.");
+    const rows = dbExportRowsCache.length ? dbExportRowsCache : await fetchTableRowsForExport(table, maxRows);
+    const now = new Date().toISOString().replace(/[:.]/g, "-");
+    if (format === "csv") {
+      const csv = rowsToCsv(rows);
+      triggerDownload(`${table}-${now}.csv`, csv, "text/csv;charset=utf-8");
+    } else if (format === "excel") {
+      const xlsHtml = rowsToExcelHtml(rows, table);
+      triggerDownload(`${table}-${now}.xls`, xlsHtml, "application/vnd.ms-excel;charset=utf-8");
+    } else {
+      const jsonText = JSON.stringify(rows, null, 2);
+      triggerDownload(`${table}-${now}.json`, jsonText, "application/json;charset=utf-8");
+    }
+    setMsg("dbExportMsg", "Export heruntergeladen.", true);
+  } catch (err) {
+    setMsg("dbExportMsg", err.message || "Download fehlgeschlagen.");
+  }
 }
 
 function fillDbFormFromRow(row) {
@@ -1231,6 +1423,18 @@ function bind() {
   $("sendMsgBtn").addEventListener("click", sendMessageTool);
   $("sendBroadcastBtn").addEventListener("click", sendBroadcastTool);
   $("loadOutboxBtn").addEventListener("click", loadOutbox);
+  $("dbInsightRefreshBtn").addEventListener("click", loadDbInsights);
+  $("dbExportPreviewBtn").addEventListener("click", previewDbExport);
+  $("dbExportDownloadBtn").addEventListener("click", downloadDbExport);
+  $("dbExportTableSelect").addEventListener("change", () => {
+    dbExportRowsCache = [];
+  });
+  $("dbExportFormatSelect").addEventListener("change", () => {
+    dbExportRowsCache = [];
+  });
+  $("dbExportMaxRowsInput").addEventListener("change", () => {
+    dbExportRowsCache = [];
+  });
   $("botRefreshBtn").addEventListener("click", () => loadProcessPanel("bot", "botStatusWrap", "botLogsWrap", "botCtlMsg"));
   $("appRefreshBtn").addEventListener("click", () => loadProcessPanel("app", "appStatusWrap", "appLogsWrap", "appCtlMsg"));
   $("botStartBtn").addEventListener("click", () => processAction("bot", "start", "botCtlMsg", "botStatusWrap", "botLogsWrap"));
@@ -1310,6 +1514,16 @@ function bind() {
         updateInfoAutoRefresh(false);
         updateProcessAutoRefresh(null);
         await loadOutbox();
+      }
+      if (tab === "dbinsight") {
+        updateInfoAutoRefresh(false);
+        updateProcessAutoRefresh(null);
+        await loadDbInsights();
+      }
+      if (tab === "dbexport") {
+        updateInfoAutoRefresh(false);
+        updateProcessAutoRefresh(null);
+        await ensureDbExportTablesLoaded();
       }
       if (tab === "botctl") {
         updateInfoAutoRefresh(false);
