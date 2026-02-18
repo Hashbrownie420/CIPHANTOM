@@ -1,10 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+RUNTIME_DIR="${OWNER_RUNTIME_DIR:-${SCRIPT_DIR}/runtime}"
+LOG_DIR="${OWNER_LOG_DIR:-${RUNTIME_DIR}/logs}"
+mkdir -p "${LOG_DIR}"
+
 PORT="${OWNER_APP_PORT:-8787}"
 HOST="${OWNER_APP_HOST:-0.0.0.0}"
-URL_FILE="${OWNER_TUNNEL_URL_FILE:-$(pwd)/tunnel_url.txt}"
-ANDROID_LOCAL_PROPERTIES="${OWNER_ANDROID_LOCAL_PROPERTIES:-$(pwd)/android/local.properties}"
+URL_FILE="${OWNER_TUNNEL_URL_FILE:-${SCRIPT_DIR}/tunnel_url.txt}"
+ANDROID_LOCAL_PROPERTIES="${OWNER_ANDROID_LOCAL_PROPERTIES:-${SCRIPT_DIR}/android/local.properties}"
 HEALTH_HOST="${HOST}"
 if [[ "${HOST}" == "0.0.0.0" ]]; then
   HEALTH_HOST="127.0.0.1"
@@ -21,8 +26,10 @@ TUNNEL_PROVIDER="${OWNER_TUNNEL_PROVIDER:-cloudflared}"
 NGROK_AUTHTOKEN="${OWNER_NGROK_AUTHTOKEN:-}"
 NGROK_DOMAIN="${OWNER_NGROK_DOMAIN:-}"
 AUTO_VERSION_ON_RESTART="${OWNER_AUTO_VERSION_ON_RESTART:-1}"
-VERSION_STATE_FILE="${OWNER_VERSION_STATE_FILE:-$(pwd)/.owner_version_state}"
-VERSION_SNAPSHOT_FILE="${OWNER_VERSION_SNAPSHOT_FILE:-$(pwd)/.owner_version_snapshot.tsv}"
+VERSION_STATE_FILE="${OWNER_VERSION_STATE_FILE:-${SCRIPT_DIR}/.owner_version_state}"
+VERSION_SNAPSHOT_FILE="${OWNER_VERSION_SNAPSHOT_FILE:-${SCRIPT_DIR}/.owner_version_snapshot.tsv}"
+APP_LOG_FILE="${OWNER_APP_LOG_FILE:-${LOG_DIR}/owner-app.log}"
+NGROK_LOG_FILE="${OWNER_NGROK_LOG_FILE:-${LOG_DIR}/ngrok.log}"
 
 detect_local_ip() {
   ip route get 1.1.1.1 2>/dev/null | awk '{
@@ -113,12 +120,12 @@ compute_owner_fingerprint() {
   d="$(mktemp -d)"
   local list="${d}/files.list"
   find \
-    "$(pwd)/api" \
-    "$(pwd)/web" \
-    "$(pwd)/android/app/src" \
-    "$(pwd)/android/app/build.gradle.kts" \
-    "$(pwd)/android/build.gradle.kts" \
-    "$(pwd)/package.json" \
+    "${SCRIPT_DIR}/api" \
+    "${SCRIPT_DIR}/web" \
+    "${SCRIPT_DIR}/android/app/src" \
+    "${SCRIPT_DIR}/android/app/build.gradle.kts" \
+    "${SCRIPT_DIR}/android/build.gradle.kts" \
+    "${SCRIPT_DIR}/package.json" \
     -type f 2>/dev/null \
     ! -path "*/build/*" \
     -print | sort > "${list}"
@@ -137,17 +144,17 @@ build_owner_snapshot() {
   local out_file="$1"
   : > "${out_file}"
   find \
-    "$(pwd)/api" \
-    "$(pwd)/web" \
-    "$(pwd)/android/app/src" \
-    "$(pwd)/android/app/build.gradle.kts" \
-    "$(pwd)/android/build.gradle.kts" \
-    "$(pwd)/package.json" \
+    "${SCRIPT_DIR}/api" \
+    "${SCRIPT_DIR}/web" \
+    "${SCRIPT_DIR}/android/app/src" \
+    "${SCRIPT_DIR}/android/app/build.gradle.kts" \
+    "${SCRIPT_DIR}/android/build.gradle.kts" \
+    "${SCRIPT_DIR}/package.json" \
     -type f 2>/dev/null \
     ! -path "*/build/*" \
     -print | sort | while IFS= read -r f; do
       local rel
-      rel="$(printf '%s\n' "${f}" | sed "s#^$(pwd)/##")"
+      rel="$(printf '%s\n' "${f}" | sed "s#^${SCRIPT_DIR}/##")"
       printf '%s %s\n' "$(sha1sum "${f}" | awk '{print $1}')" "${rel}" >> "${out_file}"
     done
 }
@@ -246,7 +253,10 @@ fi
 auto_bump_version_from_updates
 
 echo "[1/2] Starte Owner-App lokal auf ${HOST}:${PORT} ..."
-OWNER_APP_HOST="$HOST" OWNER_APP_PORT="$PORT" npm start >/tmp/cipher-owner-app.log 2>&1 &
+(
+  cd "${SCRIPT_DIR}"
+  OWNER_APP_HOST="$HOST" OWNER_APP_PORT="$PORT" node api/server.mjs
+) >"${APP_LOG_FILE}" 2>&1 &
 APP_PID=$!
 
 LOCAL_IP=""
@@ -281,12 +291,12 @@ for i in $(seq 1 40); do
     break
   fi
   if ! kill -0 "${APP_PID}" >/dev/null 2>&1; then
-    echo "Owner-App Prozess wurde beendet. Details: /tmp/cipher-owner-app.log"
+    echo "Owner-App Prozess wurde beendet. Details: ${APP_LOG_FILE}"
     exit 1
   fi
   sleep 1
   if [[ "${i}" -eq 40 ]]; then
-    echo "Owner-App ist lokal nicht erreichbar. Details: /tmp/cipher-owner-app.log"
+    echo "Owner-App ist lokal nicht erreichbar. Details: ${APP_LOG_FILE}"
     exit 1
   fi
 done
@@ -363,9 +373,9 @@ if [[ "${TUNNEL_PROVIDER}" == "ngrok" ]]; then
 
   echo "[2/2] Starte ngrok..."
   if [[ -n "${NGROK_DOMAIN}" ]]; then
-    ngrok http --domain="${NGROK_DOMAIN}" "${HEALTH_HOST}:${PORT}" >/tmp/cipher-owner-ngrok.log 2>&1 &
+    ngrok http --domain="${NGROK_DOMAIN}" "${HEALTH_HOST}:${PORT}" >"${NGROK_LOG_FILE}" 2>&1 &
   else
-    ngrok http "${HEALTH_HOST}:${PORT}" >/tmp/cipher-owner-ngrok.log 2>&1 &
+    ngrok http "${HEALTH_HOST}:${PORT}" >"${NGROK_LOG_FILE}" 2>&1 &
   fi
   NGROK_PID=$!
   trap 'kill ${APP_PID} >/dev/null 2>&1 || true; kill ${NGROK_PID} >/dev/null 2>&1 || true' EXIT
@@ -382,7 +392,7 @@ if [[ "${TUNNEL_PROVIDER}" == "ngrok" ]]; then
   done
 
   if [[ -z "${URL}" ]]; then
-    echo "Konnte ngrok URL nicht lesen. Details: /tmp/cipher-owner-ngrok.log"
+    echo "Konnte ngrok URL nicht lesen. Details: ${NGROK_LOG_FILE}"
     exit 1
   fi
 

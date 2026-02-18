@@ -139,6 +139,7 @@ const execFileAsync = promisify(execFile);
 let ownerApkWatcherTimer = null;
 let ownerApkBuildRunning = false;
 const OWNER_APK_AUTOBUILD_ENABLED = String(process.env.OWNER_APK_AUTOBUILD || "1").trim() !== "0";
+const OWNER_APP_PM2_NAMES = ["cipherphantom-owner-app", "cipherphantom-owner-remote"];
 
 // Einfache ANSI-Farben fuer Terminal-Ausgabe
 const COLORS = {
@@ -418,6 +419,19 @@ async function getPm2Proc(name) {
   } catch {
     return null;
   }
+}
+
+async function getFirstPm2Proc(names) {
+  for (const name of names) {
+    const proc = await getPm2Proc(name);
+    if (proc) return proc;
+  }
+  return null;
+}
+
+function getPm2LogPath(processName, stream = "out") {
+  const home = process.env.HOME || "";
+  return path.join(home, ".pm2", "logs", `${processName}-${stream}.log`);
 }
 
 function tailFileSafe(filePath, lines = 40) {
@@ -1161,6 +1175,12 @@ function printBanner() {
   console.log(`- ${upLine}`);
   console.log(`- ${nodeLine}`);
   console.log("");
+}
+
+function runtimeStatsLine() {
+  const load1 = os.loadavg()[0]?.toFixed(2) ?? "0.00";
+  const mem = process.memoryUsage();
+  return `uptime=${formatUptime(process.uptime())} rss=${formatBytes(mem.rss)} heap=${formatBytes(mem.heapUsed)}/${formatBytes(mem.heapTotal)} load1=${load1}`;
 }
 
 // Zufalls-Freundescode generieren
@@ -2279,6 +2299,7 @@ async function start() {
     }
     if (connection === "open") {
       log("open", "Verbunden");
+      log("open", `Runtime: ${runtimeStatsLine()}`);
       flushPendingOwnerApkSend(sock).catch(() => {});
       if (startupSelftestIssues.length > 0 && !startupSelftestSent) {
         startupSelftestSent = true;
@@ -5966,14 +5987,16 @@ async function start() {
           await sendText(sock, chatId, m, "Kein Zugriff", ["Owner only."], "", "🚫");
           break;
         }
-        const proc = await getPm2Proc("cipherphantom-owner-remote");
+        const proc = await getFirstPm2Proc(OWNER_APP_PM2_NAMES);
         const status = proc?.pm2_env?.status || "unknown";
+        const procName = proc?.name || OWNER_APP_PM2_NAMES[0];
         await sendText(
           sock,
           chatId,
           m,
           "App Notfallpanel",
           [
+            `Prozess: ${procName}`,
             `Status: ${status}`,
             `▶️ Start: ${prefix}appstart`,
             `⏹️ Stop: ${prefix}appstop`,
@@ -5995,18 +6018,20 @@ async function start() {
           break;
         }
         const action = cmd === "appstart" ? "start" : cmd === "appstop" ? "stop" : "restart";
-        const res = await runPm2([action, "cipherphantom-owner-remote"]);
+        const proc = await getFirstPm2Proc(OWNER_APP_PM2_NAMES);
+        const processName = proc?.name || OWNER_APP_PM2_NAMES[0];
+        const res = await runPm2([action, processName]);
         if (!res.ok) {
           await sendText(sock, chatId, m, "PM2 Fehler", [res.stderr.slice(0, 200)], "", "❌");
           break;
         }
-        const proc = await getPm2Proc("cipherphantom-owner-remote");
+        const procAfter = await getPm2Proc(processName);
         await sendText(
           sock,
           chatId,
           m,
           "App Prozess",
-          [`Aktion: ${action}`, `Status: ${proc?.pm2_env?.status || "unknown"}`],
+          [`Prozess: ${processName}`, `Aktion: ${action}`, `Status: ${procAfter?.pm2_env?.status || "unknown"}`],
           "",
           "✅",
         );
@@ -6021,9 +6046,10 @@ async function start() {
         }
         const reqLines = Number(args[0]);
         const lines = Number.isFinite(reqLines) && reqLines > 0 ? Math.min(120, Math.floor(reqLines)) : 40;
-        const home = process.env.HOME || "";
-        const outPath = path.join(home, ".pm2", "logs", "cipherphantom-owner-remote-out.log");
-        const errPath = path.join(home, ".pm2", "logs", "cipherphantom-owner-remote-error.log");
+        const proc = await getFirstPm2Proc(OWNER_APP_PM2_NAMES);
+        const processName = proc?.name || OWNER_APP_PM2_NAMES[0];
+        const outPath = getPm2LogPath(processName, "out");
+        const errPath = getPm2LogPath(processName, "error");
         const outTail = tailFileSafe(outPath, lines);
         const errTail = tailFileSafe(errPath, lines);
         const text = `--- OUT ---\n${outTail || "<leer>"}\n\n--- ERR ---\n${errTail || "<leer>"}`;
@@ -6038,7 +6064,7 @@ async function start() {
             mimetype: "text/plain",
             caption: formatMessage(
               "App Logs",
-              [`Datei mit den letzten ${lines} Zeilen.`],
+              [`Prozess: ${processName}`, `Datei mit den letzten ${lines} Zeilen.`],
               "",
               "🧾",
               buildMessageMeta(m, "applogs"),

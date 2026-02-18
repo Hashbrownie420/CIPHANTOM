@@ -34,6 +34,7 @@ module.exports = {
         OWNER_TUNNEL_PROVIDER: "cloudflared",
         OWNER_NGROK_AUTHTOKEN: "",
         OWNER_NGROK_DOMAIN: "",
+        OWNER_RUNTIME_DIR: path.join(OWNER, "runtime"),
         OWNER_VERSION_BUMP_ON_URL_CHANGE: 'none',
         OWNER_AUTO_VERSION_ON_RESTART: "1",
         OWNER_HEALTH_CHECK_INTERVAL_SEC: "5",

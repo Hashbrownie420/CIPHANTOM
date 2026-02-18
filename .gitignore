@@ -22,13 +22,12 @@ owner-app/android/build/
 owner-app/android/app/build/
 owner-app/android/local.properties.example.bak
 owner-app/tunnel_url.txt
+owner-app/runtime/
+owner-app/.owner_version_snapshot.tsv
+owner-app/.owner_version_state
 
 # OS / editor noise
 .DS_Store
 Thumbs.db
 .idea/
 .vscode/
-
-# owner runtime state
-owner-app/.owner_version_snapshot.tsv
-owner-app/.owner_version_state

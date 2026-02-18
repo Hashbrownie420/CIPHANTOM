@@ -5,6 +5,9 @@ ROOT_DIR="$(cd "$(dirname "$0")" && pwd)"
 BOT_DIR="$ROOT_DIR"
 OWNER_DIR="$ROOT_DIR/owner-app"
 
+echo "[startup] Root: $ROOT_DIR"
+echo "[startup] Host: $(hostname) | Kernel: $(uname -sr) | Node: $(node -v 2>/dev/null || echo 'n/a')"
+
 cleanup() {
   jobs -pr | xargs -r kill >/dev/null 2>&1 || true
 }

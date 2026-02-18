@@ -52,11 +52,34 @@ const sessions = new Map();
 const SESSION_TTL_MS = 12 * 60 * 60 * 1000;
 const execFileAsync = promisify(execFile);
 const PROCESS_MAP = {
-  bot: "cipherphantom-bot",
-  app: "cipherphantom-owner-remote",
+  bot: ["cipherphantom-bot"],
+  app: ["cipherphantom-owner-app", "cipherphantom-owner-remote"],
 };
 
 const db = await initDb();
+
+function formatBytes(bytes) {
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  let i = 0;
+  let v = Number(bytes || 0);
+  while (v >= 1024 && i < units.length - 1) {
+    v /= 1024;
+    i += 1;
+  }
+  return `${v.toFixed(1)} ${units[i]}`;
+}
+
+function logStartupOverview() {
+  const mem = process.memoryUsage();
+  const lines = [
+    `[owner-app] gestartet auf http://${HOST}:${PORT}`,
+    `[owner-app] host=${os.hostname()} platform=${process.platform}/${process.arch} node=${process.version}`,
+    `[owner-app] cpu_cores=${os.cpus()?.length || 0} load_1m=${(os.loadavg()[0] || 0).toFixed(2)}`,
+    `[owner-app] ram_process_rss=${formatBytes(mem.rss)} ram_system=${formatBytes(os.freemem())}/${formatBytes(os.totalmem())} (free/total)`,
+    `[owner-app] paths web=${WEB_DIR} local.properties=${ANDROID_LOCAL_PROPERTIES}`,
+  ];
+  lines.forEach((line) => console.log(line));
+}
 
 function json(res, status, payload) {
   const body = JSON.stringify(payload);
@@ -275,8 +298,10 @@ function avatarPathToFull(mediaPath) {
   return full;
 }
 
-function resolveProcessName(target) {
-  return PROCESS_MAP[String(target || "").toLowerCase()] || null;
+function resolveProcessCandidates(target) {
+  const key = String(target || "").toLowerCase();
+  const out = PROCESS_MAP[key];
+  return Array.isArray(out) ? out : null;
 }
 
 async function runPm2(args) {
@@ -292,7 +317,7 @@ async function runPm2(args) {
   }
 }
 
-async function getPm2Status(processName) {
+async function getPm2List() {
   const res = await runPm2(["jlist"]);
   if (!res.ok) return { ok: false, error: res.stderr };
   let list = [];
@@ -301,6 +326,22 @@ async function getPm2Status(processName) {
   } catch {
     return { ok: false, error: "pm2 jlist parse failed" };
   }
+  return { ok: true, list };
+}
+
+async function resolveRunningProcessName(target) {
+  const candidates = resolveProcessCandidates(target);
+  if (!candidates) return { ok: false, error: "Target muss bot|app sein" };
+  const listRes = await getPm2List();
+  if (!listRes.ok) return { ok: false, error: listRes.error };
+  const found = candidates.find((name) => listRes.list.some((p) => p?.name === name));
+  return { ok: true, processName: found || candidates[0], list: listRes.list };
+}
+
+async function getPm2Status(processName) {
+  const listRes = await getPm2List();
+  if (!listRes.ok) return { ok: false, error: listRes.error };
+  const list = listRes.list;
   const row = list.find((p) => p?.name === processName);
   if (!row) return { ok: false, error: `Process '${processName}' nicht gefunden` };
   const pmUptime = Number(row?.pm2_env?.pm_uptime || 0);
@@ -493,16 +534,18 @@ async function getAvatarCheck(req, res, session) {
 }
 
 async function getProcessStatus(res, target) {
-  const processName = resolveProcessName(target);
-  if (!processName) return json(res, 400, { ok: false, error: "Target muss bot|app sein" });
+  const resolved = await resolveRunningProcessName(target);
+  if (!resolved.ok) return json(res, 400, { ok: false, error: resolved.error });
+  const processName = resolved.processName;
   const status = await getPm2Status(processName);
   if (!status.ok) return json(res, 500, { ok: false, error: status.error });
   return json(res, 200, { ok: true, target, processName, status: status.data });
 }
 
 async function getProcessLogs(res, target, lines = 80) {
-  const processName = resolveProcessName(target);
-  if (!processName) return json(res, 400, { ok: false, error: "Target muss bot|app sein" });
+  const resolved = await resolveRunningProcessName(target);
+  if (!resolved.ok) return json(res, 400, { ok: false, error: resolved.error });
+  const processName = resolved.processName;
   const safeLines = Math.max(10, Math.min(500, Number(lines || 80)));
   const outPath = path.resolve(process.env.HOME || "", ".pm2", "logs", `${processName}-out.log`);
   const errPath = path.resolve(process.env.HOME || "", ".pm2", "logs", `${processName}-error.log`);
@@ -522,9 +565,10 @@ async function getProcessLogs(res, target, lines = 80) {
 }
 
 async function processAction(res, target, action) {
-  const processName = resolveProcessName(target);
+  const resolved = await resolveRunningProcessName(target);
   const safeAction = String(action || "").toLowerCase();
-  if (!processName) return json(res, 400, { ok: false, error: "Target muss bot|app sein" });
+  if (!resolved.ok) return json(res, 400, { ok: false, error: resolved.error });
+  const processName = resolved.processName;
   if (!["start", "stop", "restart"].includes(safeAction)) {
     return json(res, 400, { ok: false, error: "action muss start|stop|restart sein" });
   }
@@ -933,5 +977,5 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(PORT, HOST, () => {
-  console.log(`[owner-app] gestartet auf http://${HOST}:${PORT}`);
+  logStartupOverview();
 });

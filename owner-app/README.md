@@ -40,6 +40,9 @@ Dann die ausgegebene `https://...trycloudflare.com` URL in `owner-app/android/lo
 Die aktive Tunnel-URL wird auch in `owner-app/tunnel_url.txt` gespeichert.
 Zusätzlich wird `owner-app/android/local.properties` automatisch auf die aktuelle `OWNER_APP_URL` aktualisiert.
 Beim Start wird ausserdem die aktuelle lokale IP automatisch erkannt und in `OWNER_APP_FALLBACK_URL` + `OWNER_UPDATE_URL` geschrieben.
+Runtime-Logs liegen unter `owner-app/runtime/logs/`:
+- `owner-app/runtime/logs/owner-app.log`
+- `owner-app/runtime/logs/ngrok.log` (nur bei ngrok)
 Schnell anzeigen:
 ```bash
 cd owner-app
@@ -59,6 +62,8 @@ Für einen festen Link ohne URL-Wechsel nutze einen **Named Tunnel**:
 ```bash
 pm2 restart ecosystem.config.cjs --only cipherphantom-owner-remote --update-env
 ```
+
+Wenn du die Owner-App ohne Tunnel direkt als PM2-App laufen lässt, kann der Prozess auch `cipherphantom-owner-app` heißen.
 
 Dann bleibt `OWNER_APP_URL` stabil und der In-App-Updater ist deutlich zuverlässiger.
 
