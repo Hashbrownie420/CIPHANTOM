@@ -325,6 +325,7 @@ th {
 }
 
 .infoGrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; }
+.logsGrid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px; }
 .infoCard { border: 1px solid var(--line); border-radius: 10px; background: #0b1220; padding: 10px; }
 .infoCard { transition: transform 180ms ease, border-color 180ms ease, box-shadow 180ms ease; }
 .infoCard:hover {
@@ -527,6 +528,10 @@ th {
 
   .respTable tbody td:last-child { border-bottom: none; }
   .rowActions { justify-content: flex-start; }
+}
+
+@media (max-width: 900px) {
+  .logsGrid { grid-template-columns: 1fr; }
 }
 
 @media (min-width: 981px) {

@@ -527,15 +527,39 @@ function resolveProcessCandidates(target) {
 }
 
 function getNetworkIps() {
+  const classifyScope = (address = "") => {
+    const v = String(address);
+    if (v.includes(":")) return "ipv6";
+    const p = v.split(".").map((n) => Number(n));
+    if (p.length !== 4 || p.some((n) => !Number.isFinite(n))) return "unknown";
+    if (p[0] === 10) return "private";
+    if (p[0] === 127) return "loopback";
+    if (p[0] === 192 && p[1] === 168) return "private";
+    if (p[0] === 172 && p[1] >= 16 && p[1] <= 31) return "private";
+    if (p[0] === 169 && p[1] === 254) return "link-local";
+    return "public";
+  };
   const out = [];
   const ifaces = os.networkInterfaces() || {};
   for (const [name, rows] of Object.entries(ifaces)) {
     for (const row of rows || []) {
       if (!row || row.internal) continue;
-      out.push({ iface: name, family: row.family, address: row.address });
+      out.push({
+        iface: name,
+        family: row.family,
+        address: row.address,
+        scope: classifyScope(row.address),
+      });
     }
   }
   return out;
+}
+
+function getPublicEndpointFromReq(req) {
+  const host = String(req?.headers?.host || "").trim();
+  if (!host) return "";
+  const proto = String(req?.headers?.["x-forwarded-proto"] || "").split(",")[0].trim() || "http";
+  return `${proto}://${host}`;
 }
 
 async function runPm2(args) {
@@ -961,7 +985,7 @@ async function getInfo(res) {
   });
 }
 
-async function getServerAdminSummary(res) {
+async function getServerAdminSummary(req, res) {
   const botResolved = await resolveRunningProcessName("bot");
   const appResolved = await resolveRunningProcessName("app");
   const botStatus = botResolved.ok ? await getPm2Status(botResolved.processName) : { ok: false, error: botResolved.error };
@@ -974,6 +998,7 @@ async function getServerAdminSummary(res) {
       node: process.version,
       uptimeSec: Math.floor(process.uptime()),
       ips: getNetworkIps(),
+      publicEndpoint: getPublicEndpointFromReq(req) || null,
       rebootAllowed: OWNER_ALLOW_SERVER_REBOOT,
     },
     processes: {
@@ -1239,7 +1264,7 @@ const server = http.createServer(async (req, res) => {
       if (req.method === "GET" && pathname === "/api/admin/summary") {
         const session = requireAuth(req, res);
         if (!session) return;
-        return getServerAdminSummary(res);
+        return getServerAdminSummary(req, res);
       }
 
       if (req.method === "GET" && pathname === "/api/ping") {

@@ -506,7 +506,9 @@ function renderLogs(data) {
 function renderAdminStatus(data) {
   const server = data?.server || {};
   const proc = data?.processes || {};
-  const ips = Array.isArray(server.ips) ? server.ips.map((i) => `${i.iface} ${i.address} (${i.family})`).join("<br>") : "-";
+  const ips = Array.isArray(server.ips)
+    ? server.ips.map((i) => `${i.iface} ${i.address} (${i.family}${i.scope ? `, ${i.scope}` : ""})`).join("<br>")
+    : "-";
   const bot = proc.bot || {};
   const app = proc.app || {};
   return `
@@ -518,6 +520,7 @@ function renderAdminStatus(data) {
         ${kvRow("Node", server.node || "-")}
         ${kvRow("Uptime", fmtUptime(server.uptimeSec || 0))}
         ${kvRow("Reboot erlaubt", server.rebootAllowed ? "ja" : "nein")}
+        ${kvRow("Öffentlicher Endpoint", server.publicEndpoint || "-")}
       </div>
       <div class="infoCard">
         <h4 class="infoTitle">IP-Adressen</h4>
@@ -541,16 +544,13 @@ function renderAdminStatus(data) {
   `;
 }
 
-function renderAdminLogs(payload) {
+function renderAdminLogs(payload, key) {
   const logs = payload?.logs || {};
-  const pick = (key) => {
-    const row = logs[key] || {};
-    const name = row.processName || key;
-    const out = stripAnsi(row.out || "").slice(-9000).trim();
-    const err = stripAnsi(row.err || "").slice(-9000).trim();
-    return `--- ${name} STDOUT ---\n${out || "<leer>"}\n\n--- ${name} STDERR ---\n${err || "<leer>"}`;
-  };
-  return `${pick("bot")}\n\n${pick("app")}\n\n--- AKTUALISIERT ---\n${new Date().toLocaleString("de-DE")}`;
+  const row = logs[key] || {};
+  const name = row.processName || key;
+  const out = stripAnsi(row.out || "").slice(-9000).trim();
+  const err = stripAnsi(row.err || "").slice(-9000).trim();
+  return `--- ${name} STDOUT ---\n${out || "<leer>"}\n\n--- ${name} STDERR ---\n${err || "<leer>"}\n\n--- AKTUALISIERT ---\n${new Date().toLocaleString("de-DE")}`;
 }
 
 async function loadProcessPanel(target, statusId, logsId, msgId) {
@@ -597,7 +597,8 @@ async function loadAdminPanel() {
       api("/api/process/all/logs?lines=80"),
     ]);
     $("adminStatusWrap").innerHTML = renderAdminStatus(summary);
-    $("adminLogsWrap").textContent = renderAdminLogs(logs);
+    $("adminBotLogsWrap").textContent = renderAdminLogs(logs, "bot");
+    $("adminAppLogsWrap").textContent = renderAdminLogs(logs, "app");
     setMsg("adminMsg", "Serverstatus geladen.", true);
   } catch (err) {
     setMsg("adminMsg", err.message || "Serverstatus konnte nicht geladen werden");
