@@ -69,6 +69,7 @@
             <h4>⚙️ Prozesse</h4>
             <button data-tab="botctl">🤖 Bot Kontrolle</button>
             <button data-tab="appctl">📱 App Kontrolle</button>
+            <button data-tab="admin">🛠️ Server Admin</button>
           </div>
 
           <div class="menuSection">
@@ -190,6 +191,20 @@
         <p id="appCtlMsg" class="msg"></p>
         <div id="appStatusWrap" class="infoBox"></div>
         <div id="appLogsWrap" class="logsBox"></div>
+      </div>
+
+      <div id="tab-admin" class="tab hidden">
+        <h3>Server Administration</h3>
+        <div class="row">
+          <button id="adminRefreshBtn">Status neu laden</button>
+          <button id="adminRestartBotBtn">Bot neustarten</button>
+          <button id="adminRestartAppBtn">App neustarten</button>
+          <button id="adminRestartAllBtn">Alles neustarten</button>
+          <button id="adminRestartServerBtn" class="danger">Server neustarten</button>
+        </div>
+        <p id="adminMsg" class="msg"></p>
+        <div id="adminStatusWrap" class="infoBox"></div>
+        <div id="adminLogsWrap" class="logsBox"></div>
       </div>
 
       <div id="tab-profile" class="tab hidden">

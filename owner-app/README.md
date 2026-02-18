@@ -12,6 +12,7 @@ Owner-Panel mit Login und Admin-Tools.
 - Outbox-Status (pending/sent/failed mit Fehlertext)
 - Server- und Bot-Infos anzeigen
 - API-Basisschutz: Rate-Limits auf Login/API + Security-Header
+- Server-Admin-Tab (Bot/App/Alles restart, Logs, IPs, optional Server-Reboot)
 
 ## Start
 ```bash
@@ -88,6 +89,9 @@ Optional fuer robusteren Start/Update-Pruefung in der APK:
 ## Security-Optionen
 - Session-TTL (Stunden) per Env:
   - `OWNER_SESSION_TTL_HOURS=12`
+- Optionaler Server-Reboot aus dem Panel:
+  - `OWNER_ALLOW_SERVER_REBOOT=1`
+  - `OWNER_SERVER_REBOOT_CMD="sudo /sbin/shutdown -r +1"`
 
 ## Observability
 - Erweiterter Healthcheck: `GET /api/healthz`

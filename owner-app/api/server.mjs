@@ -58,7 +58,10 @@ const execFileAsync = promisify(execFile);
 const PROCESS_MAP = {
   bot: ["cipherphantom-bot"],
   app: ["cipherphantom-owner-app", "cipherphantom-owner-remote"],
+  all: ["cipherphantom-bot", "cipherphantom-owner-app", "cipherphantom-owner-remote"],
 };
+const OWNER_ALLOW_SERVER_REBOOT = String(process.env.OWNER_ALLOW_SERVER_REBOOT || "0") === "1";
+const OWNER_SERVER_REBOOT_CMD = String(process.env.OWNER_SERVER_REBOOT_CMD || "sudo /sbin/shutdown -r +1");
 
 const db = await initDb();
 const rateLimitState = new Map();
@@ -523,6 +526,18 @@ function resolveProcessCandidates(target) {
   return Array.isArray(out) ? out : null;
 }
 
+function getNetworkIps() {
+  const out = [];
+  const ifaces = os.networkInterfaces() || {};
+  for (const [name, rows] of Object.entries(ifaces)) {
+    for (const row of rows || []) {
+      if (!row || row.internal) continue;
+      out.push({ iface: name, family: row.family, address: row.address });
+    }
+  }
+  return out;
+}
+
 async function runPm2(args) {
   try {
     const { stdout, stderr } = await execFileAsync("pm2", args, { maxBuffer: 1024 * 1024 * 8 });
@@ -753,29 +768,101 @@ async function getAvatarCheck(req, res, session) {
 }
 
 async function getProcessStatus(res, target) {
-  const resolved = await resolveRunningProcessName(target);
-  if (!resolved.ok) return json(res, 400, { ok: false, error: resolved.error });
+  const safeTarget = String(target || "").toLowerCase();
+  if (safeTarget === "server") {
+    return json(res, 200, {
+      ok: true,
+      target: "server",
+      processName: "server",
+      status: {
+        status: "online",
+        host: os.hostname(),
+        uptimeSec: Math.floor(process.uptime()),
+        platform: `${process.platform} ${process.arch}`,
+        ips: getNetworkIps(),
+        rebootAllowed: OWNER_ALLOW_SERVER_REBOOT,
+      },
+    });
+  }
+  if (safeTarget === "all") {
+    const targets = ["bot", "app"];
+    const statuses = {};
+    for (const t of targets) {
+      const resolved = await resolveRunningProcessName(t);
+      if (!resolved.ok) {
+        statuses[t] = { ok: false, error: resolved.error };
+        continue;
+      }
+      const status = await getPm2Status(resolved.processName);
+      statuses[t] = status.ok
+        ? { ok: true, processName: resolved.processName, status: status.data }
+        : { ok: false, processName: resolved.processName, error: status.error };
+    }
+    return json(res, 200, { ok: true, target: "all", statuses });
+  }
+
+  const resolved = await resolveRunningProcessName(safeTarget);
+  if (!resolved.ok) return json(res, 400, { ok: false, error: "Target muss bot|app|all|server sein" });
   const processName = resolved.processName;
   const status = await getPm2Status(processName);
   if (!status.ok) return json(res, 500, { ok: false, error: status.error });
-  return json(res, 200, { ok: true, target, processName, status: status.data });
+  return json(res, 200, { ok: true, target: safeTarget, processName, status: status.data });
 }
 
 async function getProcessLogs(res, target, lines = 80) {
-  const resolved = await resolveRunningProcessName(target);
-  if (!resolved.ok) return json(res, 400, { ok: false, error: resolved.error });
-  const processName = resolved.processName;
   const safeLines = Math.max(10, Math.min(500, Number(lines || 80)));
-  const outPath = path.resolve(process.env.HOME || "", ".pm2", "logs", `${processName}-out.log`);
-  const errPath = path.resolve(process.env.HOME || "", ".pm2", "logs", `${processName}-error.log`);
+  const safeTarget = String(target || "").toLowerCase();
   const readTail = (p) => {
     if (!fs.existsSync(p)) return "";
     const all = fs.readFileSync(p, "utf8").split("\n");
     return all.slice(-safeLines).join("\n");
   };
+
+  if (safeTarget === "all") {
+    const logs = {};
+    for (const t of ["bot", "app"]) {
+      const resolved = await resolveRunningProcessName(t);
+      if (!resolved.ok) {
+        logs[t] = { ok: false, error: resolved.error };
+        continue;
+      }
+      const processName = resolved.processName;
+      const outPath = path.resolve(process.env.HOME || "", ".pm2", "logs", `${processName}-out.log`);
+      const errPath = path.resolve(process.env.HOME || "", ".pm2", "logs", `${processName}-error.log`);
+      logs[t] = {
+        ok: true,
+        processName,
+        lines: safeLines,
+        out: readTail(outPath),
+        err: readTail(errPath),
+      };
+    }
+    return json(res, 200, { ok: true, target: "all", logs });
+  }
+
+  if (safeTarget === "server") {
+    const appResolved = await resolveRunningProcessName("app");
+    const processName = appResolved.ok ? appResolved.processName : "cipherphantom-owner-app";
+    const outPath = path.resolve(process.env.HOME || "", ".pm2", "logs", `${processName}-out.log`);
+    const errPath = path.resolve(process.env.HOME || "", ".pm2", "logs", `${processName}-error.log`);
+    return json(res, 200, {
+      ok: true,
+      target: "server",
+      processName,
+      lines: safeLines,
+      out: readTail(outPath),
+      err: readTail(errPath),
+    });
+  }
+
+  const resolved = await resolveRunningProcessName(safeTarget);
+  if (!resolved.ok) return json(res, 400, { ok: false, error: "Target muss bot|app|all|server sein" });
+  const processName = resolved.processName;
+  const outPath = path.resolve(process.env.HOME || "", ".pm2", "logs", `${processName}-out.log`);
+  const errPath = path.resolve(process.env.HOME || "", ".pm2", "logs", `${processName}-error.log`);
   return json(res, 200, {
     ok: true,
-    target,
+    target: safeTarget,
     processName,
     lines: safeLines,
     out: readTail(outPath),
@@ -784,19 +871,62 @@ async function getProcessLogs(res, target, lines = 80) {
 }
 
 async function processAction(res, target, action) {
-  const resolved = await resolveRunningProcessName(target);
   const safeAction = String(action || "").toLowerCase();
-  if (!resolved.ok) return json(res, 400, { ok: false, error: resolved.error });
-  const processName = resolved.processName;
+  const safeTarget = String(target || "").toLowerCase();
+
   if (!["start", "stop", "restart"].includes(safeAction)) {
     return json(res, 400, { ok: false, error: "action muss start|stop|restart sein" });
   }
+
+  if (safeTarget === "server") {
+    if (safeAction !== "restart") {
+      return json(res, 400, { ok: false, error: "Für server ist nur action=restart erlaubt" });
+    }
+    if (!OWNER_ALLOW_SERVER_REBOOT) {
+      return json(res, 403, { ok: false, error: "Server-Reboot ist deaktiviert (OWNER_ALLOW_SERVER_REBOOT=1 setzen)." });
+    }
+    await runPm2(["save"]);
+    execFile("bash", ["-lc", OWNER_SERVER_REBOOT_CMD], () => {});
+    return json(res, 200, {
+      ok: true,
+      target: "server",
+      action: "restart",
+      queued: true,
+      command: OWNER_SERVER_REBOOT_CMD,
+    });
+  }
+
+  if (safeTarget === "all") {
+    const results = {};
+    for (const t of ["bot", "app"]) {
+      const resolved = await resolveRunningProcessName(t);
+      if (!resolved.ok) {
+        results[t] = { ok: false, error: resolved.error };
+        continue;
+      }
+      const processName = resolved.processName;
+      const result = await runPm2([safeAction, processName]);
+      if (!result.ok) {
+        results[t] = { ok: false, processName, error: result.stderr };
+        continue;
+      }
+      const status = await getPm2Status(processName);
+      results[t] = status.ok
+        ? { ok: true, processName, status: status.data }
+        : { ok: false, processName, error: status.error };
+    }
+    return json(res, 200, { ok: true, target: "all", action: safeAction, results });
+  }
+
+  const resolved = await resolveRunningProcessName(safeTarget);
+  if (!resolved.ok) return json(res, 400, { ok: false, error: "Target muss bot|app|all|server sein" });
+  const processName = resolved.processName;
   const result = await runPm2([safeAction, processName]);
   if (!result.ok) return json(res, 500, { ok: false, error: result.stderr });
   const status = await getPm2Status(processName);
   return json(res, 200, {
     ok: true,
-    target,
+    target: safeTarget,
     processName,
     action: safeAction,
     status: status.ok ? status.data : null,
@@ -819,12 +949,36 @@ async function getInfo(res) {
       freeMemGB: (os.freemem() / 1024 / 1024 / 1024).toFixed(1),
       processMemMB: (mem.rss / 1024 / 1024).toFixed(1),
       loadAvg: os.loadavg(),
+      ips: getNetworkIps(),
+      rebootAllowed: OWNER_ALLOW_SERVER_REBOOT,
     },
     bot: {
       users: usersCount,
       bans: bansCount,
       quests: questsCount,
       currency: "PHN",
+    },
+  });
+}
+
+async function getServerAdminSummary(res) {
+  const botResolved = await resolveRunningProcessName("bot");
+  const appResolved = await resolveRunningProcessName("app");
+  const botStatus = botResolved.ok ? await getPm2Status(botResolved.processName) : { ok: false, error: botResolved.error };
+  const appStatus = appResolved.ok ? await getPm2Status(appResolved.processName) : { ok: false, error: appResolved.error };
+  return json(res, 200, {
+    ok: true,
+    server: {
+      host: os.hostname(),
+      platform: `${process.platform} ${process.arch}`,
+      node: process.version,
+      uptimeSec: Math.floor(process.uptime()),
+      ips: getNetworkIps(),
+      rebootAllowed: OWNER_ALLOW_SERVER_REBOOT,
+    },
+    processes: {
+      bot: botStatus.ok ? botStatus.data : { status: "unknown", error: botStatus.error },
+      app: appStatus.ok ? appStatus.data : { status: "unknown", error: appStatus.error },
     },
   });
 }
@@ -1080,6 +1234,12 @@ const server = http.createServer(async (req, res) => {
         const session = requireAuth(req, res);
         if (!session) return;
         return getInfo(res);
+      }
+
+      if (req.method === "GET" && pathname === "/api/admin/summary") {
+        const session = requireAuth(req, res);
+        if (!session) return;
+        return getServerAdminSummary(res);
       }
 
       if (req.method === "GET" && pathname === "/api/ping") {

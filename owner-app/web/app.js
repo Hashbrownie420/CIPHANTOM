@@ -1,7 +1,7 @@
 let token = null;
 let infoAutoTimer = null;
 let processAutoTimer = null;
-const TABS = ["db", "dbform", "ban", "msg", "broadcast", "outbox", "botctl", "appctl", "profile", "info"];
+const TABS = ["db", "dbform", "ban", "msg", "broadcast", "outbox", "botctl", "appctl", "admin", "profile", "info"];
 let infoLoading = false;
 const processLoading = { bot: false, app: false };
 let lastInfoPayload = "";
@@ -503,6 +503,56 @@ function renderLogs(data) {
   return blocks.join("\n\n");
 }
 
+function renderAdminStatus(data) {
+  const server = data?.server || {};
+  const proc = data?.processes || {};
+  const ips = Array.isArray(server.ips) ? server.ips.map((i) => `${i.iface} ${i.address} (${i.family})`).join("<br>") : "-";
+  const bot = proc.bot || {};
+  const app = proc.app || {};
+  return `
+    <div class="infoGrid">
+      <div class="infoCard">
+        <h4 class="infoTitle">Server</h4>
+        ${kvRow("Host", server.host || "-")}
+        ${kvRow("Plattform", server.platform || "-")}
+        ${kvRow("Node", server.node || "-")}
+        ${kvRow("Uptime", fmtUptime(server.uptimeSec || 0))}
+        ${kvRow("Reboot erlaubt", server.rebootAllowed ? "ja" : "nein")}
+      </div>
+      <div class="infoCard">
+        <h4 class="infoTitle">IP-Adressen</h4>
+        <div class="logsBox" style="min-height:unset;max-height:180px">${ips || "-"}</div>
+      </div>
+      <div class="infoCard">
+        <h4 class="infoTitle">Bot Prozess</h4>
+        ${kvRow("Status", bot.status || "-")}
+        ${kvRow("PID", bot.pid ?? "-")}
+        ${kvRow("Restarts", bot.restarts ?? "-")}
+        ${kvRow("Uptime", fmtUptime(bot.uptimeSec || 0))}
+      </div>
+      <div class="infoCard">
+        <h4 class="infoTitle">App Prozess</h4>
+        ${kvRow("Status", app.status || "-")}
+        ${kvRow("PID", app.pid ?? "-")}
+        ${kvRow("Restarts", app.restarts ?? "-")}
+        ${kvRow("Uptime", fmtUptime(app.uptimeSec || 0))}
+      </div>
+    </div>
+  `;
+}
+
+function renderAdminLogs(payload) {
+  const logs = payload?.logs || {};
+  const pick = (key) => {
+    const row = logs[key] || {};
+    const name = row.processName || key;
+    const out = stripAnsi(row.out || "").slice(-9000).trim();
+    const err = stripAnsi(row.err || "").slice(-9000).trim();
+    return `--- ${name} STDOUT ---\n${out || "<leer>"}\n\n--- ${name} STDERR ---\n${err || "<leer>"}`;
+  };
+  return `${pick("bot")}\n\n${pick("app")}\n\n--- AKTUALISIERT ---\n${new Date().toLocaleString("de-DE")}`;
+}
+
 async function loadProcessPanel(target, statusId, logsId, msgId) {
   if (processLoading[target]) return;
   processLoading[target] = true;
@@ -537,6 +587,33 @@ async function processAction(target, action, msgId, statusId, logsId) {
     setMsg(msgId, `${target.toUpperCase()} ${action} ausgeführt.`, true);
   } catch (err) {
     setMsg(msgId, err.message || "Aktion fehlgeschlagen");
+  }
+}
+
+async function loadAdminPanel() {
+  try {
+    const [summary, logs] = await Promise.all([
+      api("/api/admin/summary"),
+      api("/api/process/all/logs?lines=80"),
+    ]);
+    $("adminStatusWrap").innerHTML = renderAdminStatus(summary);
+    $("adminLogsWrap").textContent = renderAdminLogs(logs);
+    setMsg("adminMsg", "Serverstatus geladen.", true);
+  } catch (err) {
+    setMsg("adminMsg", err.message || "Serverstatus konnte nicht geladen werden");
+  }
+}
+
+async function adminAction(target, action) {
+  try {
+    await api(`/api/process/${target}/action`, {
+      method: "POST",
+      body: JSON.stringify({ action }),
+    });
+    await loadAdminPanel();
+    setMsg("adminMsg", `${target} ${action} ausgeführt.`, true);
+  } catch (err) {
+    setMsg("adminMsg", err.message || "Aktion fehlgeschlagen");
   }
 }
 
@@ -727,6 +804,15 @@ function bind() {
   $("appStartBtn").addEventListener("click", () => processAction("app", "start", "appCtlMsg", "appStatusWrap", "appLogsWrap"));
   $("appStopBtn").addEventListener("click", () => processAction("app", "stop", "appCtlMsg", "appStatusWrap", "appLogsWrap"));
   $("appRestartBtn").addEventListener("click", () => processAction("app", "restart", "appCtlMsg", "appStatusWrap", "appLogsWrap"));
+  $("adminRefreshBtn").addEventListener("click", loadAdminPanel);
+  $("adminRestartBotBtn").addEventListener("click", () => adminAction("bot", "restart"));
+  $("adminRestartAppBtn").addEventListener("click", () => adminAction("app", "restart"));
+  $("adminRestartAllBtn").addEventListener("click", () => adminAction("all", "restart"));
+  $("adminRestartServerBtn").addEventListener("click", async () => {
+    const ok = window.confirm("Server wirklich neustarten?");
+    if (!ok) return;
+    await adminAction("server", "restart");
+  });
   $("profileRefreshBtn").addEventListener("click", loadProfile);
   $("profileBioSaveBtn").addEventListener("click", saveProfileBio);
   $("profileBioClearBtn").addEventListener("click", clearProfileBio);
@@ -774,6 +860,11 @@ function bind() {
         updateInfoAutoRefresh(false);
         await loadProcessPanel("app", "appStatusWrap", "appLogsWrap", "appCtlMsg");
         updateProcessAutoRefresh("app");
+      }
+      if (tab === "admin") {
+        updateInfoAutoRefresh(false);
+        updateProcessAutoRefresh(null);
+        await loadAdminPanel();
       }
       if (tab === "profile") {
         updateInfoAutoRefresh(false);
