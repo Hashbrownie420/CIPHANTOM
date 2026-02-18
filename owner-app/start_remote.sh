@@ -58,6 +58,16 @@ get_prop() {
 bump_apk_version() {
   local file="$1"
   local bump_type="${2:-patch}"
+  if [[ "${bump_type}" == "none" || "${bump_type}" == "off" || "${bump_type}" == "noop" ]]; then
+    local current_noop
+    current_noop="$(get_prop "${file}" "OWNER_APK_VERSION_CODE")"
+    if [[ ! "${current_noop}" =~ ^[0-9]+$ ]]; then
+      current_noop=1
+      upsert_prop "${file}" "OWNER_APK_VERSION_CODE" "${current_noop}"
+    fi
+    echo "[owner-remote] APK-Version unverändert (bump=${bump_type}): ${current_noop}"
+    return 0
+  fi
   local current
   current="$(get_prop "${file}" "OWNER_APK_VERSION_CODE")"
   if [[ ! "${current}" =~ ^[0-9]+$ ]]; then
@@ -301,11 +311,16 @@ apply_remote_url() {
     fallback_url="${LOCAL_URL}"
   fi
 
-  apk_base="${LOCAL_URL:-${MANUAL_FALLBACK_URL:-}}"
+  apk_base="${target_url}"
   if [[ -n "${apk_base}" ]]; then
     apk_url="${apk_base}/downloads/latest.apk"
   else
-    apk_url="$(get_prop "${ANDROID_LOCAL_PROPERTIES}" "OWNER_APK_DOWNLOAD_URL")"
+    apk_base="${LOCAL_URL:-${MANUAL_FALLBACK_URL:-}}"
+    if [[ -n "${apk_base}" ]]; then
+      apk_url="${apk_base}/downloads/latest.apk"
+    else
+      apk_url="$(get_prop "${ANDROID_LOCAL_PROPERTIES}" "OWNER_APK_DOWNLOAD_URL")"
+    fi
   fi
 
   upsert_prop "${ANDROID_LOCAL_PROPERTIES}" "OWNER_APP_URL" "${target_url}"
