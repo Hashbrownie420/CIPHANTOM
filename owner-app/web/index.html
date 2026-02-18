@@ -202,8 +202,72 @@
           <button id="adminRestartAllBtn">Alles neustarten</button>
           <button id="adminRestartServerBtn" class="danger">Server neustarten</button>
         </div>
+        <div class="row">
+          <button id="adminPm2SaveBtn">PM2 save</button>
+          <button id="adminPm2ResurrectBtn">PM2 resurrect</button>
+          <button id="adminGitPullBtn">Git Pull</button>
+          <button id="adminNpmInstallBtn">NPM Install</button>
+          <button id="adminDeployBtn">Deploy jetzt</button>
+          <button id="adminApkBuildBtn">APK Build</button>
+        </div>
+        <div class="row">
+          <button id="adminAlertsRefreshBtn">Alerts laden</button>
+          <button id="adminAuditRefreshBtn">Audit laden</button>
+          <button id="adminUsersRefreshBtn">User laden</button>
+          <button id="adminJobsRefreshBtn">Jobs laden</button>
+        </div>
         <p id="adminMsg" class="msg"></p>
         <div id="adminStatusWrap" class="infoBox"></div>
+        <div id="adminAlertsWrap" class="infoBox"></div>
+        <div id="adminOpOutputWrap" class="logsBox"></div>
+
+        <h4 class="infoTitle">Feature Flags</h4>
+        <div id="adminFlagsWrap" class="infoBox"></div>
+        <div class="row">
+          <button id="adminFlagsSaveBtn">Flags speichern</button>
+        </div>
+
+        <h4 class="infoTitle">Job Queue</h4>
+        <div class="row">
+          <select id="adminJobOp">
+            <option value="restart_all">restart_all</option>
+            <option value="git_pull">git_pull</option>
+            <option value="deploy_now">deploy_now</option>
+            <option value="apk_build_debug">apk_build_debug</option>
+          </select>
+          <input id="adminJobRunAt" type="datetime-local" />
+          <button id="adminJobCreateBtn">Job erstellen</button>
+        </div>
+        <div id="adminJobsWrap" class="tableWrap"></div>
+
+        <h4 class="infoTitle">Backup Manager</h4>
+        <div class="row">
+          <button id="adminBackupNowBtn">Backup jetzt</button>
+          <button id="adminBackupCheckBtn">Integritätscheck</button>
+          <button id="adminBackupListBtn">Backups laden</button>
+        </div>
+        <div id="adminBackupsWrap" class="tableWrap"></div>
+
+        <h4 class="infoTitle">Audit Log</h4>
+        <div id="adminAuditWrap" class="tableWrap"></div>
+
+        <h4 class="infoTitle">User & Rollen</h4>
+        <div class="row">
+          <input id="adminRoleChatId" type="text" placeholder="chat_id" />
+          <select id="adminRoleValue">
+            <option value="user">user</option>
+            <option value="admin">admin</option>
+            <option value="owner">owner</option>
+          </select>
+          <button id="adminRoleSetBtn">Rolle setzen</button>
+        </div>
+        <div id="adminUsersWrap" class="tableWrap"></div>
+
+        <h4 class="infoTitle">Live Logs (SSE)</h4>
+        <div class="row">
+          <button id="adminLiveStartBtn">Live Start</button>
+          <button id="adminLiveStopBtn" class="danger">Live Stop</button>
+        </div>
         <div class="logsGrid">
           <div>
             <h4 class="infoTitle">Bot Logs</h4>

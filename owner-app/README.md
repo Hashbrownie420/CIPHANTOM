@@ -15,9 +15,14 @@ Owner-Panel mit Login und Admin-Tools.
 - Server-Admin-Tab (Bot/App/Alles restart, Logs, IPs, optional Server-Reboot)
 - Erweiterte Admin-API:
   - `GET /api/admin/summary`
+  - `GET /api/admin/alerts`
+  - `GET/POST /api/admin/flags`
+  - `POST /api/admin/op`
+  - `GET/POST/DELETE /api/admin/jobs`
   - `GET /api/admin/audit`
   - `GET /api/admin/users`
   - `POST /api/admin/users/:chat_id/role`
+  - `GET /api/process/:target/stream` (SSE live logs)
 
 ## Start
 ```bash

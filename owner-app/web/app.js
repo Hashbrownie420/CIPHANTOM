@@ -1,6 +1,7 @@
 let token = null;
 let infoAutoTimer = null;
 let processAutoTimer = null;
+let adminLiveSource = null;
 const TABS = ["db", "dbform", "ban", "msg", "broadcast", "outbox", "botctl", "appctl", "admin", "profile", "info"];
 let infoLoading = false;
 const processLoading = { bot: false, app: false };
@@ -503,6 +504,14 @@ function renderLogs(data) {
   return blocks.join("\n\n");
 }
 
+function escapeHtml(v) {
+  return String(v == null ? "" : v)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;");
+}
+
 function renderAdminStatus(data) {
   const server = data?.server || {};
   const proc = data?.processes || {};
@@ -603,6 +612,178 @@ async function loadAdminPanel() {
   } catch (err) {
     setMsg("adminMsg", err.message || "Serverstatus konnte nicht geladen werden");
   }
+}
+
+async function runAdminOp(op, args = {}) {
+  const data = await api("/api/admin/op", {
+    method: "POST",
+    body: JSON.stringify({ op, args }),
+  });
+  const out = `OP: ${op}\n\nSTDOUT:\n${data.stdout || "<leer>"}\n\nSTDERR:\n${data.stderr || "<leer>"}`;
+  $("adminOpOutputWrap").textContent = out;
+  return data;
+}
+
+async function loadAdminAlerts() {
+  try {
+    const data = await api("/api/admin/alerts");
+    const alerts = Array.isArray(data.alerts) ? data.alerts : [];
+    if (!alerts.length) {
+      $("adminAlertsWrap").innerHTML = `<div class="kv"><span class="k">Status</span><span class="v">Keine Alerts</span></div>`;
+      return;
+    }
+    $("adminAlertsWrap").innerHTML = alerts
+      .map((a) => `<div class="kv"><span class="k">${escapeHtml(a.code || "-")} (${escapeHtml(a.level || "-")})</span><span class="v">${escapeHtml(a.message || "-")}</span></div>`)
+      .join("");
+  } catch (err) {
+    setMsg("adminMsg", err.message || "Alerts konnten nicht geladen werden");
+  }
+}
+
+async function loadAdminFlags() {
+  try {
+    const data = await api("/api/admin/flags");
+    const f = data.flags || {};
+    $("adminFlagsWrap").innerHTML = `
+      <label class="fieldLabel"><input id="flagDeploy" type="checkbox" ${f.deployEnabled ? "checked" : ""}/> Deploy enabled</label>
+      <label class="fieldLabel"><input id="flagApkBuild" type="checkbox" ${f.apkBuildEnabled ? "checked" : ""}/> APK build enabled</label>
+      <label class="fieldLabel"><input id="flagReboot" type="checkbox" ${f.rebootEnabled ? "checked" : ""}/> Reboot enabled</label>
+      <label class="fieldLabel"><input id="flagLogStream" type="checkbox" ${f.logStreamEnabled ? "checked" : ""}/> Log stream enabled</label>
+      <label class="fieldLabel"><input id="flagAlerts" type="checkbox" ${f.alertsEnabled ? "checked" : ""}/> Alerts enabled</label>
+    `;
+  } catch (err) {
+    setMsg("adminMsg", err.message || "Flags konnten nicht geladen werden");
+  }
+}
+
+async function saveAdminFlags() {
+  try {
+    const payload = {
+      deployEnabled: $("flagDeploy")?.checked === true,
+      apkBuildEnabled: $("flagApkBuild")?.checked === true,
+      rebootEnabled: $("flagReboot")?.checked === true,
+      logStreamEnabled: $("flagLogStream")?.checked === true,
+      alertsEnabled: $("flagAlerts")?.checked === true,
+    };
+    await api("/api/admin/flags", { method: "POST", body: JSON.stringify(payload) });
+    setMsg("adminMsg", "Flags gespeichert.", true);
+  } catch (err) {
+    setMsg("adminMsg", err.message || "Flags konnten nicht gespeichert werden");
+  }
+}
+
+async function loadAdminAudit() {
+  try {
+    const data = await api("/api/admin/audit?limit=120");
+    $("adminAuditWrap").innerHTML = renderTable(data.rows || []);
+  } catch (err) {
+    setMsg("adminMsg", err.message || "Audit konnte nicht geladen werden");
+  }
+}
+
+async function loadAdminUsers() {
+  try {
+    const data = await api("/api/admin/users?limit=500");
+    $("adminUsersWrap").innerHTML = renderTable(data.rows || []);
+  } catch (err) {
+    setMsg("adminMsg", err.message || "Users konnten nicht geladen werden");
+  }
+}
+
+async function setAdminUserRole() {
+  try {
+    const chatId = $("adminRoleChatId").value.trim();
+    const role = $("adminRoleValue").value;
+    await api(`/api/admin/users/${encodeURIComponent(chatId)}/role`, {
+      method: "POST",
+      body: JSON.stringify({ role }),
+    });
+    setMsg("adminMsg", `Rolle gesetzt: ${chatId} -> ${role}`, true);
+    await loadAdminUsers();
+  } catch (err) {
+    setMsg("adminMsg", err.message || "Rolle konnte nicht gesetzt werden");
+  }
+}
+
+async function loadAdminJobs() {
+  try {
+    const data = await api("/api/admin/jobs");
+    $("adminJobsWrap").innerHTML = renderTable(data.rows || []);
+  } catch (err) {
+    setMsg("adminMsg", err.message || "Jobs konnten nicht geladen werden");
+  }
+}
+
+async function loadAdminBackups() {
+  try {
+    const data = await api("/api/db/backups?limit=100");
+    const rows = (data.rows || []).map((r) => ({
+      ...r,
+      download: `${window.location.origin}/api/db/backups/${encodeURIComponent(r.name)}`,
+    }));
+    $("adminBackupsWrap").innerHTML = renderTable(rows);
+  } catch (err) {
+    setMsg("adminMsg", err.message || "Backups konnten nicht geladen werden");
+  }
+}
+
+async function createAdminBackup() {
+  try {
+    await api("/api/db/backup", { method: "POST", body: JSON.stringify({}) });
+    setMsg("adminMsg", "Backup erstellt.", true);
+    await loadAdminBackups();
+  } catch (err) {
+    setMsg("adminMsg", err.message || "Backup fehlgeschlagen");
+  }
+}
+
+async function checkAdminBackupIntegrity() {
+  try {
+    const data = await api("/api/db/maintenance/check");
+    setMsg("adminMsg", `Integritätscheck: ${data.integrity}`, true);
+  } catch (err) {
+    setMsg("adminMsg", err.message || "Integritätscheck fehlgeschlagen");
+  }
+}
+
+async function createAdminJob() {
+  try {
+    const op = $("adminJobOp").value;
+    const runAtInput = $("adminJobRunAt").value;
+    const runAt = runAtInput ? new Date(runAtInput).toISOString() : new Date(Date.now() + 60_000).toISOString();
+    await api("/api/admin/jobs", { method: "POST", body: JSON.stringify({ op, runAt }) });
+    setMsg("adminMsg", `Job erstellt: ${op}`, true);
+    await loadAdminJobs();
+  } catch (err) {
+    setMsg("adminMsg", err.message || "Job konnte nicht erstellt werden");
+  }
+}
+
+function startAdminLiveLogs() {
+  if (adminLiveSource) return;
+  const tokenQ = token ? `&token=${encodeURIComponent(token)}` : "";
+  adminLiveSource = new EventSource(`/api/process/all/stream?lines=80${tokenQ}`);
+  adminLiveSource.addEventListener("logs", (ev) => {
+    try {
+      const data = JSON.parse(ev.data || "{}");
+      $("adminBotLogsWrap").textContent = renderAdminLogs(data, "bot");
+      $("adminAppLogsWrap").textContent = renderAdminLogs(data, "app");
+    } catch {
+      // ignore
+    }
+  });
+  adminLiveSource.onerror = () => {
+    setMsg("adminMsg", "Live-Logs Verbindung unterbrochen.");
+  };
+  setMsg("adminMsg", "Live-Logs gestartet.", true);
+}
+
+function stopAdminLiveLogs() {
+  if (adminLiveSource) {
+    adminLiveSource.close();
+    adminLiveSource = null;
+  }
+  setMsg("adminMsg", "Live-Logs gestoppt.", true);
 }
 
 async function adminAction(target, action) {
@@ -800,6 +981,7 @@ async function logout() {
   localStorage.removeItem("owner_user");
   updateInfoAutoRefresh(false);
   updateProcessAutoRefresh(null);
+  stopAdminLiveLogs();
   $("appCard").classList.add("hidden");
   $("loginCard").classList.remove("hidden");
 }
@@ -867,6 +1049,30 @@ function bind() {
   $("adminRefreshBtn").addEventListener("click", loadAdminPanel);
   $("adminRestartBotBtn").addEventListener("click", () => adminAction("bot", "restart"));
   $("adminRestartAppBtn").addEventListener("click", () => adminAction("app", "restart"));
+  $("adminPm2SaveBtn").addEventListener("click", async () => {
+    await runAdminOp("pm2_save");
+    setMsg("adminMsg", "PM2 save ausgeführt.", true);
+  });
+  $("adminPm2ResurrectBtn").addEventListener("click", async () => {
+    await runAdminOp("pm2_resurrect");
+    setMsg("adminMsg", "PM2 resurrect ausgeführt.", true);
+  });
+  $("adminGitPullBtn").addEventListener("click", async () => {
+    await runAdminOp("git_pull");
+    setMsg("adminMsg", "Git pull ausgeführt.", true);
+  });
+  $("adminNpmInstallBtn").addEventListener("click", async () => {
+    await runAdminOp("npm_install");
+    setMsg("adminMsg", "NPM install ausgeführt.", true);
+  });
+  $("adminDeployBtn").addEventListener("click", async () => {
+    await runAdminOp("deploy_now");
+    setMsg("adminMsg", "Deploy gestartet.", true);
+  });
+  $("adminApkBuildBtn").addEventListener("click", async () => {
+    await runAdminOp("apk_build_debug");
+    setMsg("adminMsg", "APK Build gestartet.", true);
+  });
   $("adminRestartAllBtn").addEventListener("click", async () => {
     const ok = await confirmDangerActionWithCountdown(
       "Alles neustarten",
@@ -885,6 +1091,18 @@ function bind() {
     if (!ok) return;
     await adminAction("server", "restart");
   });
+  $("adminAlertsRefreshBtn").addEventListener("click", loadAdminAlerts);
+  $("adminAuditRefreshBtn").addEventListener("click", loadAdminAudit);
+  $("adminUsersRefreshBtn").addEventListener("click", loadAdminUsers);
+  $("adminJobsRefreshBtn").addEventListener("click", loadAdminJobs);
+  $("adminFlagsSaveBtn").addEventListener("click", saveAdminFlags);
+  $("adminJobCreateBtn").addEventListener("click", createAdminJob);
+  $("adminRoleSetBtn").addEventListener("click", setAdminUserRole);
+  $("adminLiveStartBtn").addEventListener("click", startAdminLiveLogs);
+  $("adminLiveStopBtn").addEventListener("click", stopAdminLiveLogs);
+  $("adminBackupNowBtn").addEventListener("click", createAdminBackup);
+  $("adminBackupCheckBtn").addEventListener("click", checkAdminBackupIntegrity);
+  $("adminBackupListBtn").addEventListener("click", loadAdminBackups);
   $("profileRefreshBtn").addEventListener("click", loadProfile);
   $("profileBioSaveBtn").addEventListener("click", saveProfileBio);
   $("profileBioClearBtn").addEventListener("click", clearProfileBio);
@@ -898,37 +1116,44 @@ function bind() {
       showTab(tab);
       closeMenuOnMobile();
       if (tab === "db") {
+        stopAdminLiveLogs();
         updateInfoAutoRefresh(false);
         updateProcessAutoRefresh(null);
         await loadTables();
         await loadCurrentTable();
       }
       if (tab === "dbform") {
+        stopAdminLiveLogs();
         updateInfoAutoRefresh(false);
         updateProcessAutoRefresh(null);
         await loadTables();
         await loadDbFormTable();
       }
       if (tab === "ban") {
+        stopAdminLiveLogs();
         updateInfoAutoRefresh(false);
         updateProcessAutoRefresh(null);
         await loadBans();
       }
       if (tab === "msg" || tab === "broadcast") {
+        stopAdminLiveLogs();
         updateInfoAutoRefresh(false);
         updateProcessAutoRefresh(null);
       }
       if (tab === "outbox") {
+        stopAdminLiveLogs();
         updateInfoAutoRefresh(false);
         updateProcessAutoRefresh(null);
         await loadOutbox();
       }
       if (tab === "botctl") {
+        stopAdminLiveLogs();
         updateInfoAutoRefresh(false);
         await loadProcessPanel("bot", "botStatusWrap", "botLogsWrap", "botCtlMsg");
         updateProcessAutoRefresh("bot");
       }
       if (tab === "appctl") {
+        stopAdminLiveLogs();
         updateInfoAutoRefresh(false);
         await loadProcessPanel("app", "appStatusWrap", "appLogsWrap", "appCtlMsg");
         updateProcessAutoRefresh("app");
@@ -937,13 +1162,21 @@ function bind() {
         updateInfoAutoRefresh(false);
         updateProcessAutoRefresh(null);
         await loadAdminPanel();
+        await loadAdminAlerts();
+        await loadAdminFlags();
+        await loadAdminAudit();
+        await loadAdminUsers();
+        await loadAdminJobs();
+        await loadAdminBackups();
       }
       if (tab === "profile") {
+        stopAdminLiveLogs();
         updateInfoAutoRefresh(false);
         updateProcessAutoRefresh(null);
         await loadProfile();
       }
       if (tab === "info") {
+        stopAdminLiveLogs();
         updateProcessAutoRefresh(null);
         await loadInfo();
         updateInfoAutoRefresh(true);

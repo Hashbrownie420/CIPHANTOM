@@ -32,6 +32,8 @@ const AVATAR_DIR = path.resolve(PROJECT_ROOT, "data", "avatars");
 const DB_FILE = path.resolve(PROJECT_ROOT, "data", "cipherphantom.db");
 const DB_BACKUP_DIR = path.resolve(PROJECT_ROOT, "data", "backups");
 const DB_BACKUP_KEEP = Math.max(1, Number(process.env.OWNER_DB_BACKUP_KEEP || 20));
+const ADMIN_FLAGS_FILE = path.resolve(PROJECT_ROOT, "data", "admin-flags.json");
+const ADMIN_JOBS_FILE = path.resolve(PROJECT_ROOT, "data", "admin-jobs.json");
 const ANDROID_LOCAL_PROPERTIES = path.resolve(OWNER_DIR, "android", "local.properties");
 const DEFAULT_APK_FILE = path.resolve(
   OWNER_DIR,
@@ -74,6 +76,7 @@ const RATE_LIMITS = {
   api: { windowMs: 60 * 1000, max: 180 },
   processAction: { windowMs: 60 * 1000, max: 30 },
 };
+let adminJobTimer = null;
 
 function formatBytes(bytes) {
   const units = ["B", "KB", "MB", "GB", "TB"];
@@ -187,6 +190,13 @@ function getTokenFromReq(req) {
   const raw = req.headers.authorization || "";
   const parts = raw.split(" ");
   if (parts.length === 2 && /^Bearer$/i.test(parts[0])) return parts[1];
+  try {
+    const url = new URL(req.url || "/", `http://${req.headers.host || "localhost"}`);
+    const q = String(url.searchParams.get("token") || "").trim();
+    if (q) return q;
+  } catch {
+    // ignore
+  }
   return null;
 }
 
@@ -264,6 +274,42 @@ function resolveApkFilePath(props = {}) {
 
 function ensureDir(dir) {
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+}
+
+function readJsonFileSafe(filePath, fallback) {
+  try {
+    if (!fs.existsSync(filePath)) return fallback;
+    const raw = fs.readFileSync(filePath, "utf8");
+    return JSON.parse(raw);
+  } catch {
+    return fallback;
+  }
+}
+
+function writeJsonFileSafe(filePath, payload) {
+  ensureDir(path.dirname(filePath));
+  fs.writeFileSync(filePath, JSON.stringify(payload, null, 2), "utf8");
+}
+
+function defaultAdminFlags() {
+  return {
+    deployEnabled: true,
+    apkBuildEnabled: true,
+    rebootEnabled: OWNER_ALLOW_SERVER_REBOOT,
+    logStreamEnabled: true,
+    alertsEnabled: true,
+  };
+}
+
+function getAdminFlags() {
+  const merged = { ...defaultAdminFlags(), ...readJsonFileSafe(ADMIN_FLAGS_FILE, {}) };
+  return merged;
+}
+
+function setAdminFlags(partial = {}) {
+  const next = { ...getAdminFlags(), ...(partial || {}) };
+  writeJsonFileSafe(ADMIN_FLAGS_FILE, next);
+  return next;
 }
 
 function listDbBackups(limit = 50) {
@@ -425,6 +471,77 @@ async function collectHealthSnapshot() {
       loadAvg1m: Number(load1.toFixed(2)),
     },
   };
+}
+
+function readAdminJobs() {
+  const rows = readJsonFileSafe(ADMIN_JOBS_FILE, []);
+  return Array.isArray(rows) ? rows : [];
+}
+
+function writeAdminJobs(rows) {
+  writeJsonFileSafe(ADMIN_JOBS_FILE, Array.isArray(rows) ? rows : []);
+}
+
+function upsertAdminJob(job) {
+  const rows = readAdminJobs();
+  const id = String(job?.id || `job_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`);
+  const next = {
+    id,
+    op: String(job?.op || ""),
+    runAt: String(job?.runAt || new Date().toISOString()),
+    status: String(job?.status || "queued"),
+    createdAt: String(job?.createdAt || new Date().toISOString()),
+    updatedAt: new Date().toISOString(),
+    result: job?.result || null,
+  };
+  const idx = rows.findIndex((r) => String(r?.id) === id);
+  if (idx >= 0) rows[idx] = { ...rows[idx], ...next };
+  else rows.unshift(next);
+  writeAdminJobs(rows.slice(0, 500));
+  return next;
+}
+
+function deleteAdminJob(id) {
+  const rows = readAdminJobs();
+  const next = rows.filter((r) => String(r?.id) !== String(id));
+  writeAdminJobs(next);
+}
+
+async function collectAlerts() {
+  const health = await collectHealthSnapshot();
+  const alerts = [];
+  if (!health.checks.db.ok) alerts.push({ level: "critical", code: "DB_DOWN", message: health.checks.db.error || "DB check failed" });
+  if (!health.checks.disk.ok) alerts.push({ level: "warning", code: "DISK_LOW", message: `Freier Speicher niedrig (${formatBytes(health.checks.disk.availableBytes || 0)})` });
+  if (!health.checks.pm2.ok) alerts.push({ level: "warning", code: "PM2_PROC_DOWN", message: "Nicht alle Kernprozesse sind online." });
+  if ((health.runtime.loadAvg1m || 0) > 2.5) alerts.push({ level: "warning", code: "LOAD_HIGH", message: `Hohe CPU-Last (${health.runtime.loadAvg1m})` });
+  const freeRatio = Number(os.freemem() / os.totalmem());
+  if (freeRatio < 0.12) alerts.push({ level: "warning", code: "RAM_LOW", message: `Wenig freier RAM (${(freeRatio * 100).toFixed(1)}%)` });
+  return { ok: true, alerts, health };
+}
+
+function startAdminJobsWorker() {
+  if (adminJobTimer) return;
+  adminJobTimer = setInterval(async () => {
+    const now = Date.now();
+    const rows = readAdminJobs();
+    for (const row of rows) {
+      if (row.status !== "queued") continue;
+      const runAt = new Date(row.runAt).getTime();
+      if (!Number.isFinite(runAt) || runAt > now) continue;
+      row.status = "running";
+      row.updatedAt = new Date().toISOString();
+      writeAdminJobs(rows);
+      const result = await runAdminOperation(row.op, { via: "job", id: row.id });
+      row.status = result.ok ? "done" : "failed";
+      row.result = {
+        ok: result.ok,
+        stdout: String(result.stdout || "").slice(-2000),
+        stderr: String(result.stderr || "").slice(-2000),
+      };
+      row.updatedAt = new Date().toISOString();
+      writeAdminJobs(rows);
+    }
+  }, 5000);
 }
 
 function sendStatic(req, res) {
@@ -604,6 +721,56 @@ async function getPm2List() {
     return { ok: false, error: "pm2 jlist parse failed" };
   }
   return { ok: true, list };
+}
+
+async function runShell(command) {
+  try {
+    const { stdout, stderr } = await execFileAsync("bash", ["-lc", command], { maxBuffer: 1024 * 1024 * 16 });
+    return { ok: true, stdout: String(stdout || ""), stderr: String(stderr || "") };
+  } catch (err) {
+    return {
+      ok: false,
+      stdout: String(err?.stdout || ""),
+      stderr: String(err?.stderr || err?.message || "shell failed"),
+    };
+  }
+}
+
+function buildAdminOpCommand(op) {
+  const root = PROJECT_ROOT;
+  const ownerAndroid = path.resolve(OWNER_DIR, "android");
+  const map = {
+    pm2_save: "pm2 save",
+    pm2_resurrect: "pm2 resurrect",
+    restart_bot: "pm2 restart cipherphantom-bot",
+    restart_app: "pm2 restart cipherphantom-owner-app",
+    restart_all: "pm2 restart cipherphantom-bot && pm2 restart cipherphantom-owner-app",
+    git_pull: `cd '${root}' && git pull --ff-only origin main`,
+    npm_install: `cd '${root}' && npm install`,
+    deploy_now: `cd '${root}' && git pull --ff-only origin main && pm2 restart cipherphantom-bot && pm2 restart cipherphantom-owner-app && pm2 save`,
+    apk_build_debug: `cd '${ownerAndroid}' && ./gradlew assembleDebug --no-daemon`,
+  };
+  return map[String(op || "").trim()] || "";
+}
+
+async function runAdminOperation(op, args = {}) {
+  const cmd = buildAdminOpCommand(op);
+  if (!cmd) return { ok: false, error: `Unbekannte Operation: ${op}` };
+  if (op === "deploy_now" && !getAdminFlags().deployEnabled) {
+    return { ok: false, error: "Deploy ist per Feature-Flag deaktiviert." };
+  }
+  if (op === "apk_build_debug" && !getAdminFlags().apkBuildEnabled) {
+    return { ok: false, error: "APK-Build ist per Feature-Flag deaktiviert." };
+  }
+  const result = await runShell(cmd);
+  return {
+    ok: result.ok,
+    op,
+    cmd,
+    stdout: result.stdout.slice(-12000),
+    stderr: result.stderr.slice(-12000),
+    args,
+  };
 }
 
 async function resolveRunningProcessName(target) {
@@ -911,6 +1078,58 @@ async function getProcessLogs(res, target, lines = 80) {
     out: readTail(outPath),
     err: readTail(errPath),
   });
+}
+
+function streamProcessLogs(req, res, target, lines = 80) {
+  const safeTarget = String(target || "all").toLowerCase();
+  const safeLines = Math.max(10, Math.min(300, Number(lines || 80)));
+  res.writeHead(200, {
+    "Content-Type": "text/event-stream; charset=utf-8",
+    "Cache-Control": "no-cache, no-transform",
+    Connection: "keep-alive",
+  });
+  const send = async () => {
+    const snapshot = await (async () => {
+      if (safeTarget === "all") {
+        const logs = {};
+        for (const t of ["bot", "app"]) {
+          const resolved = await resolveRunningProcessName(t);
+          if (!resolved.ok) {
+            logs[t] = { ok: false, error: resolved.error };
+            continue;
+          }
+          const processName = resolved.processName;
+          const outPath = path.resolve(process.env.HOME || "", ".pm2", "logs", `${processName}-out.log`);
+          const errPath = path.resolve(process.env.HOME || "", ".pm2", "logs", `${processName}-error.log`);
+          const readTail = (p) => {
+            if (!fs.existsSync(p)) return "";
+            const all = fs.readFileSync(p, "utf8").split("\n");
+            return all.slice(-safeLines).join("\n");
+          };
+          logs[t] = { ok: true, processName, out: readTail(outPath), err: readTail(errPath) };
+        }
+        return { ok: true, target: "all", logs };
+      }
+      const resolved = await resolveRunningProcessName(safeTarget);
+      if (!resolved.ok) return { ok: false, error: resolved.error };
+      const processName = resolved.processName;
+      const outPath = path.resolve(process.env.HOME || "", ".pm2", "logs", `${processName}-out.log`);
+      const errPath = path.resolve(process.env.HOME || "", ".pm2", "logs", `${processName}-error.log`);
+      const readTail = (p) => {
+        if (!fs.existsSync(p)) return "";
+        const all = fs.readFileSync(p, "utf8").split("\n");
+        return all.slice(-safeLines).join("\n");
+      };
+      return { ok: true, target: safeTarget, processName, out: readTail(outPath), err: readTail(errPath) };
+    })();
+    res.write(`event: logs\n`);
+    res.write(`data: ${JSON.stringify(snapshot)}\n\n`);
+  };
+  send().catch(() => {});
+  const timer = setInterval(() => {
+    send().catch(() => {});
+  }, 1500);
+  req.on("close", () => clearInterval(timer));
 }
 
 async function processAction(res, target, action, session = null) {
@@ -1323,6 +1542,66 @@ const server = http.createServer(async (req, res) => {
         return getServerAdminSummary(req, res);
       }
 
+      if (req.method === "GET" && pathname === "/api/admin/alerts") {
+        const session = requireAuth(req, res);
+        if (!session) return;
+        const out = await collectAlerts();
+        return json(res, 200, out);
+      }
+
+      if (req.method === "GET" && pathname === "/api/admin/flags") {
+        const session = requireAuth(req, res);
+        if (!session) return;
+        return json(res, 200, { ok: true, flags: getAdminFlags() });
+      }
+
+      if (req.method === "POST" && pathname === "/api/admin/flags") {
+        const session = requireAuth(req, res);
+        if (!session) return;
+        const body = await parseBody(req);
+        const flags = setAdminFlags(body || {});
+        await auditAdminAction(session, "set_flags", "flags", flags);
+        return json(res, 200, { ok: true, flags });
+      }
+
+      if (req.method === "POST" && pathname === "/api/admin/op") {
+        const session = requireAuth(req, res);
+        if (!session) return;
+        const body = await parseBody(req);
+        const op = String(body?.op || "").trim();
+        const result = await runAdminOperation(op, body?.args || {});
+        await auditAdminAction(session, "admin_op", op, { ok: result.ok });
+        return json(res, result.ok ? 200 : 500, result);
+      }
+
+      if (req.method === "GET" && pathname === "/api/admin/jobs") {
+        const session = requireAuth(req, res);
+        if (!session) return;
+        return json(res, 200, { ok: true, rows: readAdminJobs() });
+      }
+
+      if (req.method === "POST" && pathname === "/api/admin/jobs") {
+        const session = requireAuth(req, res);
+        if (!session) return;
+        const body = await parseBody(req);
+        const job = upsertAdminJob({
+          op: String(body?.op || "").trim(),
+          runAt: String(body?.runAt || new Date(Date.now() + 60_000).toISOString()),
+          status: "queued",
+        });
+        await auditAdminAction(session, "job_create", job.id, { op: job.op, runAt: job.runAt });
+        return json(res, 200, { ok: true, job });
+      }
+
+      if (req.method === "DELETE" && pathname.startsWith("/api/admin/jobs/")) {
+        const session = requireAuth(req, res);
+        if (!session) return;
+        const jobId = decodeURIComponent(pathname.replace("/api/admin/jobs/", "")).trim();
+        deleteAdminJob(jobId);
+        await auditAdminAction(session, "job_delete", jobId, null);
+        return json(res, 200, { ok: true, id: jobId });
+      }
+
       if (req.method === "GET" && pathname === "/api/admin/audit") {
         const session = requireAuth(req, res);
         if (!session) return;
@@ -1502,6 +1781,14 @@ const server = http.createServer(async (req, res) => {
         return getProcessLogs(res, target, lines);
       }
 
+      if (req.method === "GET" && pathname.startsWith("/api/process/") && pathname.endsWith("/stream")) {
+        const session = requireAuth(req, res);
+        if (!session) return;
+        const target = pathname.split("/")[3] || "";
+        const lines = Number(url.searchParams.get("lines") || 80);
+        return streamProcessLogs(req, res, target, lines);
+      }
+
       if (req.method === "POST" && pathname.startsWith("/api/process/") && pathname.endsWith("/action")) {
         const limited = applyRateLimit(req, "processAction");
         if (limited.limited) return rateLimitExceeded(res, limited);
@@ -1536,6 +1823,8 @@ const server = http.createServer(async (req, res) => {
     return json(res, 500, { ok: false, error: err.message || "Server error" });
   }
 });
+
+startAdminJobsWorker();
 
 server.listen(PORT, HOST, () => {
   logStartupOverview();
