@@ -28,3 +28,7 @@ owner-app/tunnel_url.txt
 Thumbs.db
 .idea/
 .vscode/
+
+# owner runtime state
+owner-app/.owner_version_snapshot.tsv
+owner-app/.owner_version_state
