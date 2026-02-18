@@ -1,2 +1,30 @@
 node_modules/
 auth/
+
+# Runtime data / local state
+data/
+*.db
+*.sqlite
+*.sqlite3
+*.log
+*.pid
+.pm2/
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+owner-app/android/local.properties
+
+# Build / generated artifacts
+owner-app/android/.gradle/
+owner-app/android/build/
+owner-app/android/app/build/
+owner-app/android/local.properties.example.bak
+owner-app/tunnel_url.txt
+
+# OS / editor noise
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

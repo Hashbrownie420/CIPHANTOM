@@ -4,8 +4,8 @@ b22bef2b32567e24e87f75833f6b52135f516d0d android/app/src/main/java/com/cipherpha
 6253fb23bbc8c7351d07689cb03a08f0b6c18ec3 android/app/src/main/res/drawable/ic_launcher_background.xml
 9d2e2dd246a447b7e4484263ab4ad6021735778d android/app/src/main/res/drawable/ic_launcher_foreground.xml
 482b40801fd8415b4f6f1e0ea071941f9fa283ec android/app/src/main/res/layout/activity_main.xml
-6685d5e069a29bbb3b8f23e225ebfe37c6541f66 android/app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml
 6685d5e069a29bbb3b8f23e225ebfe37c6541f66 android/app/src/main/res/mipmap-anydpi-v26/ic_launcher_round.xml
+6685d5e069a29bbb3b8f23e225ebfe37c6541f66 android/app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml
 a788ea9e6cdc07ec9092c0105fdd98cae4192a20 android/app/src/main/res/values/colors.xml
 ac6823ba4b2223f148dc5554ac0019e32429dccd android/app/src/main/res/values/strings.xml
 0c6176d1990069aad7d4daeccbb02466fd32b3d3 android/app/src/main/res/values/themes.xml
