@@ -25,9 +25,12 @@
 
     <section id="appCard" class="card hidden appCard">
       <div class="topbar">
-        <div class="topbarText">
-          <h2 class="topTitle">CIPHERPHANTOM Control Center</h2>
-          <p class="muted">Ein Dashboard für Bot, App, Daten und Server-Administration.</p>
+        <div class="brandLine">
+          <div class="brandMark" aria-hidden="true">CP</div>
+          <div class="topbarText">
+            <h2 class="topTitle">Owner Command Deck</h2>
+            <p class="muted">Verwaltung von Bot, App, Datenbank und Server in einer Oberfläche.</p>
+          </div>
         </div>
         <button id="menuToggle" class="iconBtn" aria-label="Menü öffnen">☰</button>
       </div>
@@ -38,250 +41,305 @@
         <aside id="menuDrawer" class="menu menuDrawer">
           <button id="menuClose" class="iconBtn menuCloseBtn" aria-label="Menü schließen">✕</button>
           <div class="menuHead menuBrand">
-            <strong>Navigation</strong>
-            <span>Owner Panel</span>
+            <strong>Control Deck</strong>
+            <span>Owner Navigation</span>
           </div>
 
           <details class="menuSection" open>
-            <summary>Übersicht</summary>
+            <summary>Control Tower</summary>
             <div class="menuSub">
-              <button data-tab="info">Server/Bot Infos</button>
-              <button data-tab="profile">Profil</button>
+              <button data-tab="info">Live Übersicht</button>
+              <button data-tab="admin">Server Commander</button>
+              <button data-tab="botctl">Bot Operator</button>
+              <button data-tab="appctl">App Operator</button>
             </div>
           </details>
 
           <details class="menuSection" open>
-            <summary>Daten</summary>
+            <summary>Data Forge</summary>
             <div class="menuSub">
-              <button data-tab="db">Datenbanken</button>
-              <button data-tab="dbform">DB Formular</button>
-              <button data-tab="outbox">Outbox Status</button>
+              <button data-tab="db">Daten Explorer</button>
+              <button data-tab="dbform">Daten Editor</button>
+              <button data-tab="outbox">Outbox Queue</button>
             </div>
           </details>
 
           <details class="menuSection">
-            <summary>Kommunikation</summary>
+            <summary>Comms Desk</summary>
             <div class="menuSub">
-              <button data-tab="msg">Nachrichten Tool</button>
-              <button data-tab="broadcast">Broadcast</button>
+              <button data-tab="msg">Direct Message</button>
+              <button data-tab="broadcast">Broadcast Hub</button>
             </div>
           </details>
 
           <details class="menuSection">
-            <summary>Moderation</summary>
+            <summary>Security</summary>
             <div class="menuSub">
-              <button data-tab="ban">Nutzer bannen</button>
+              <button data-tab="ban">Ban Control</button>
+              <button data-tab="profile">Owner Profil</button>
             </div>
           </details>
 
-          <details class="menuSection" open>
-            <summary>System</summary>
-            <div class="menuSub">
-              <button data-tab="botctl">Bot Kontrolle</button>
-              <button data-tab="appctl">App Kontrolle</button>
-              <button data-tab="admin">Server Admin</button>
-            </div>
-          </details>
-
-          <div class="menuSection">
+          <div class="menuSection menuSectionFlat">
             <button id="logoutBtn" class="danger">Logout</button>
           </div>
         </aside>
 
         <main class="panelArea">
-      <div id="tab-db" class="tab hidden">
-        <h3>Datenbanken anzeigen</h3>
-        <div class="row">
-          <select id="tableSelect"></select>
-          <input id="dbSearchInput" type="text" placeholder="Suche in Tabelle..." />
-          <input id="limitInput" type="number" min="1" max="500" value="50" />
-          <button id="loadTableBtn">Laden</button>
-        </div>
-        <p id="dbMsg" class="msg"></p>
-        <div id="tableWrap" class="tableWrap"></div>
-      </div>
+          <div id="tab-db" class="tab hidden">
+            <h3>Daten Explorer</h3>
+            <p class="tabLead">Tabellen filtern, durchsuchen und schnell analysieren.</p>
+            <section class="sectionCard">
+              <div class="row">
+                <select id="tableSelect"></select>
+                <input id="dbSearchInput" type="text" placeholder="Suche in Tabelle..." />
+                <input id="limitInput" type="number" min="1" max="500" value="50" />
+                <button id="loadTableBtn">Laden</button>
+              </div>
+            </section>
+            <p id="dbMsg" class="msg"></p>
+            <section class="sectionCard">
+              <div id="tableWrap" class="tableWrap"></div>
+            </section>
+          </div>
 
-      <div id="tab-dbform" class="tab hidden">
-        <h3>Datenbank Formular</h3>
-        <div class="row">
-          <select id="dbFormTableSelect"></select>
-          <input id="dbFormRowIdInput" type="number" min="1" placeholder="Row-ID (für Laden/Update/Löschen)" />
-          <button id="dbFormLoadBtn">Datensatz laden</button>
-        </div>
-        <div id="dbFormFields" class="row2"></div>
-        <div class="row">
-          <button id="dbFormCreateBtn">Eintrag hinzufügen</button>
-          <button id="dbFormUpdateBtn">Eintrag aktualisieren</button>
-          <button id="dbFormDeleteBtn" class="danger">Eintrag löschen</button>
-        </div>
-        <p id="dbFormMsg" class="msg"></p>
-      </div>
+          <div id="tab-dbform" class="tab hidden">
+            <h3>Daten Editor</h3>
+            <p class="tabLead">Datensätze über Felder lesen, anlegen, aktualisieren oder löschen.</p>
+            <section class="sectionCard">
+              <div class="row">
+                <select id="dbFormTableSelect"></select>
+                <input id="dbFormRowIdInput" type="number" min="1" placeholder="Row-ID (optional)" />
+                <button id="dbFormLoadBtn">Laden</button>
+              </div>
+              <div id="dbFormFields" class="row2"></div>
+              <div class="row">
+                <button id="dbFormCreateBtn">Hinzufügen</button>
+                <button id="dbFormUpdateBtn">Speichern</button>
+                <button id="dbFormDeleteBtn" class="danger">Löschen</button>
+              </div>
+            </section>
+            <p id="dbFormMsg" class="msg"></p>
+          </div>
 
-      <div id="tab-ban" class="tab hidden">
-        <h3>Nutzer bannen</h3>
-        <div class="row2">
-          <input id="banPhone" type="text" placeholder="Handynummer (z. B. 49176...)" />
-          <input id="banDuration" type="number" min="0" placeholder="Dauer in Stunden (0 = permanent)" />
-          <input id="banReason" type="text" placeholder="Grund" />
-        </div>
-        <div class="row">
-          <button id="banBtn" class="danger">Bannen</button>
-          <button id="unbanBtn">Unban</button>
-          <button id="loadBansBtn">Sperrliste laden</button>
-        </div>
-        <p id="banMsg" class="msg"></p>
-        <div id="bansWrap" class="tableWrap"></div>
-      </div>
+          <div id="tab-ban" class="tab hidden">
+            <h3>Ban Control</h3>
+            <p class="tabLead">Nutzer sperren, entsperren und Sperrlisten prüfen.</p>
+            <section class="sectionCard">
+              <div class="row2">
+                <input id="banPhone" type="text" placeholder="Handynummer (z. B. 49176...)" />
+                <input id="banDuration" type="number" min="0" placeholder="Dauer in Stunden (0 = permanent)" />
+                <input id="banReason" type="text" placeholder="Grund" />
+              </div>
+              <div class="row">
+                <button id="banBtn" class="danger">Bannen</button>
+                <button id="unbanBtn">Unban</button>
+                <button id="loadBansBtn">Sperrliste laden</button>
+              </div>
+            </section>
+            <p id="banMsg" class="msg"></p>
+            <section class="sectionCard">
+              <div id="bansWrap" class="tableWrap"></div>
+            </section>
+          </div>
 
-      <div id="tab-msg" class="tab hidden">
-        <h3>Nachrichten Tool</h3>
-        <div class="row2">
-          <input id="msgPhone" type="text" placeholder="Handynummer (z. B. 49176...)" />
-          <input id="msgText" type="text" placeholder="Nachricht an die Nummer" />
-        </div>
-        <div class="row">
-          <button id="sendMsgBtn">Nachricht senden</button>
-        </div>
-        <p id="msgToolMsg" class="msg"></p>
-      </div>
+          <div id="tab-msg" class="tab hidden">
+            <h3>Direct Message</h3>
+            <p class="tabLead">Einzelne Nachricht direkt an eine Zielnummer senden.</p>
+            <section class="sectionCard">
+              <div class="row2">
+                <input id="msgPhone" type="text" placeholder="Handynummer (z. B. 49176...)" />
+                <input id="msgText" type="text" placeholder="Nachricht an die Nummer" />
+              </div>
+              <div class="row">
+                <button id="sendMsgBtn">Nachricht senden</button>
+              </div>
+            </section>
+            <p id="msgToolMsg" class="msg"></p>
+          </div>
 
-      <div id="tab-broadcast" class="tab hidden">
-        <h3>Broadcast</h3>
-        <div class="row2">
-          <select id="broadcastScope">
-            <option value="users">Alle User</option>
-            <option value="groups">Alle Gruppen</option>
-            <option value="all">User + Gruppen</option>
-          </select>
-          <input id="broadcastText" type="text" placeholder="Broadcast-Nachricht" />
-        </div>
-        <div class="row">
-          <button id="sendBroadcastBtn" class="danger">Broadcast senden</button>
-        </div>
-        <p id="broadcastMsg" class="msg"></p>
-      </div>
+          <div id="tab-broadcast" class="tab hidden">
+            <h3>Broadcast Hub</h3>
+            <p class="tabLead">Nachricht an User, Gruppen oder beide Zielgruppen senden.</p>
+            <section class="sectionCard">
+              <div class="row2">
+                <select id="broadcastScope">
+                  <option value="users">Alle User</option>
+                  <option value="groups">Alle Gruppen</option>
+                  <option value="all">User + Gruppen</option>
+                </select>
+                <input id="broadcastText" type="text" placeholder="Broadcast-Nachricht" />
+              </div>
+              <div class="row">
+                <button id="sendBroadcastBtn" class="danger">Broadcast senden</button>
+              </div>
+            </section>
+            <p id="broadcastMsg" class="msg"></p>
+          </div>
 
-      <div id="tab-outbox" class="tab hidden">
-        <h3>Outbox Status</h3>
-        <div class="row">
-          <select id="outboxStatus">
-            <option value="all">Alle</option>
-            <option value="pending">Pending</option>
-            <option value="sent">Sent</option>
-            <option value="failed">Failed</option>
-          </select>
-          <input id="outboxLimit" type="number" min="1" max="500" value="100" />
-          <button id="loadOutboxBtn">Aktualisieren</button>
-        </div>
-        <p id="outboxMsg" class="msg"></p>
-        <div id="outboxWrap" class="tableWrap"></div>
-      </div>
+          <div id="tab-outbox" class="tab hidden">
+            <h3>Outbox Queue</h3>
+            <p class="tabLead">Versandstatus und Fehler in der Nachrichtenwarteschlange überwachen.</p>
+            <section class="sectionCard">
+              <div class="row">
+                <select id="outboxStatus">
+                  <option value="all">Alle</option>
+                  <option value="pending">Pending</option>
+                  <option value="sent">Sent</option>
+                  <option value="failed">Failed</option>
+                </select>
+                <input id="outboxLimit" type="number" min="1" max="500" value="100" />
+                <button id="loadOutboxBtn">Aktualisieren</button>
+              </div>
+            </section>
+            <p id="outboxMsg" class="msg"></p>
+            <section class="sectionCard">
+              <div id="outboxWrap" class="tableWrap"></div>
+            </section>
+          </div>
 
-      <div id="tab-botctl" class="tab hidden">
-        <h3>WhatsApp Bot Steuerung</h3>
-        <div class="row">
-          <button id="botStartBtn">Start</button>
-          <button id="botStopBtn" class="danger">Stop</button>
-          <button id="botRestartBtn">Restart</button>
-          <button id="botRefreshBtn">Status/Logs laden</button>
-        </div>
-        <p id="botCtlMsg" class="msg"></p>
-        <div id="botStatusWrap" class="infoBox"></div>
-        <div id="botLogsWrap" class="logsBox"></div>
-      </div>
+          <div id="tab-botctl" class="tab hidden">
+            <h3>Bot Operator</h3>
+            <p class="tabLead">WhatsApp-Bot kontrollieren und Laufzeitstatus live sehen.</p>
+            <section class="sectionCard">
+              <div class="row">
+                <button id="botStartBtn">Start</button>
+                <button id="botStopBtn" class="danger">Stop</button>
+                <button id="botRestartBtn">Restart</button>
+                <button id="botRefreshBtn">Status/Logs laden</button>
+              </div>
+            </section>
+            <p id="botCtlMsg" class="msg"></p>
+            <section class="sectionCard">
+              <div id="botStatusWrap" class="infoBox"></div>
+            </section>
+            <section class="sectionCard">
+              <div id="botLogsWrap" class="logsBox"></div>
+            </section>
+          </div>
 
-      <div id="tab-appctl" class="tab hidden">
-        <h3>Owner App Steuerung</h3>
-        <div class="row">
-          <button id="appStartBtn">Start</button>
-          <button id="appStopBtn" class="danger">Stop</button>
-          <button id="appRestartBtn">Restart</button>
-          <button id="appRefreshBtn">Status/Logs laden</button>
-        </div>
-        <p id="appCtlMsg" class="msg"></p>
-        <div id="appStatusWrap" class="infoBox"></div>
-        <div id="appLogsWrap" class="logsBox"></div>
-      </div>
+          <div id="tab-appctl" class="tab hidden">
+            <h3>App Operator</h3>
+            <p class="tabLead">Owner-App Prozess starten, stoppen, neustarten und Logs prüfen.</p>
+            <section class="sectionCard">
+              <div class="row">
+                <button id="appStartBtn">Start</button>
+                <button id="appStopBtn" class="danger">Stop</button>
+                <button id="appRestartBtn">Restart</button>
+                <button id="appRefreshBtn">Status/Logs laden</button>
+              </div>
+            </section>
+            <p id="appCtlMsg" class="msg"></p>
+            <section class="sectionCard">
+              <div id="appStatusWrap" class="infoBox"></div>
+            </section>
+            <section class="sectionCard">
+              <div id="appLogsWrap" class="logsBox"></div>
+            </section>
+          </div>
 
-      <div id="tab-admin" class="tab hidden">
-        <h3>Server Administration</h3>
-        <div class="row">
-          <button id="adminRefreshBtn">Status neu laden</button>
-          <button id="adminRestartBotBtn">Bot neustarten</button>
-          <button id="adminRestartAppBtn">App neustarten</button>
-          <button id="adminRestartAllBtn">Alles neustarten</button>
-          <button id="adminRestartServerBtn" class="danger">Server neustarten</button>
-        </div>
-        <div class="row">
-          <button id="adminAlertsRefreshBtn">Alerts laden</button>
-          <button id="adminAuditRefreshBtn">Audit laden</button>
-          <button id="adminUsersRefreshBtn">User laden</button>
-          <button id="adminJobsRefreshBtn">Jobs laden</button>
-        </div>
-        <p id="adminMsg" class="msg"></p>
-        <div id="adminStatusWrap" class="infoBox"></div>
-        <div id="adminAlertsWrap" class="infoBox"></div>
+          <div id="tab-admin" class="tab hidden">
+            <h3>Server Commander</h3>
+            <p class="tabLead">Server-Aktionen, Rollen, Jobs, Backups und Audits im Blick.</p>
+            <section class="sectionCard">
+              <div class="row">
+                <button id="adminRefreshBtn">Status neu laden</button>
+                <button id="adminRestartBotBtn">Bot neustarten</button>
+                <button id="adminRestartAppBtn">App neustarten</button>
+                <button id="adminRestartAllBtn">Alles neustarten</button>
+                <button id="adminRestartServerBtn" class="danger">Server neustarten</button>
+              </div>
+            </section>
+            <section class="sectionCard">
+              <div class="row">
+                <button id="adminAlertsRefreshBtn">Alerts laden</button>
+                <button id="adminAuditRefreshBtn">Audit laden</button>
+                <button id="adminUsersRefreshBtn">User laden</button>
+                <button id="adminJobsRefreshBtn">Jobs laden</button>
+              </div>
+            </section>
+            <p id="adminMsg" class="msg"></p>
+            <section class="sectionCard">
+              <div id="adminStatusWrap" class="infoBox"></div>
+            </section>
+            <section class="sectionCard">
+              <h4 class="infoTitle">Alerts</h4>
+              <div id="adminAlertsWrap" class="infoBox"></div>
+            </section>
+            <section class="sectionCard">
+              <h4 class="infoTitle">Feature Flags</h4>
+              <div id="adminFlagsWrap" class="infoBox"></div>
+              <div class="row">
+                <button id="adminFlagsSaveBtn">Flags speichern</button>
+              </div>
+            </section>
+            <section class="sectionCard">
+              <h4 class="infoTitle">Job Queue</h4>
+              <div class="row">
+                <select id="adminJobOp">
+                  <option value="restart_all">restart_all</option>
+                  <option value="git_pull">git_pull</option>
+                  <option value="deploy_now">deploy_now</option>
+                  <option value="apk_build_debug">apk_build_debug</option>
+                </select>
+                <input id="adminJobRunAt" type="datetime-local" />
+                <button id="adminJobCreateBtn">Job erstellen</button>
+              </div>
+              <div id="adminJobsWrap" class="tableWrap"></div>
+            </section>
+            <section class="sectionCard">
+              <h4 class="infoTitle">Backup Manager</h4>
+              <div class="row">
+                <button id="adminBackupNowBtn">Backup jetzt</button>
+                <button id="adminBackupCheckBtn">Integritätscheck</button>
+                <button id="adminBackupListBtn">Backups laden</button>
+              </div>
+              <div id="adminBackupsWrap" class="tableWrap"></div>
+            </section>
+            <section class="sectionCard">
+              <h4 class="infoTitle">Audit Log</h4>
+              <div id="adminAuditWrap" class="tableWrap"></div>
+            </section>
+            <section class="sectionCard">
+              <h4 class="infoTitle">User & Rollen</h4>
+              <div class="row">
+                <input id="adminRoleChatId" type="text" placeholder="chat_id" />
+                <select id="adminRoleValue">
+                  <option value="user">user</option>
+                  <option value="admin">admin</option>
+                  <option value="owner">owner</option>
+                </select>
+                <button id="adminRoleSetBtn">Rolle setzen</button>
+              </div>
+              <div id="adminUsersWrap" class="tableWrap"></div>
+            </section>
+          </div>
 
-        <h4 class="infoTitle">Feature Flags</h4>
-        <div id="adminFlagsWrap" class="infoBox"></div>
-        <div class="row">
-          <button id="adminFlagsSaveBtn">Flags speichern</button>
-        </div>
+          <div id="tab-profile" class="tab hidden">
+            <h3>Owner Profil</h3>
+            <p class="tabLead">Profilansicht inklusive Avatar und persönlicher Biografie.</p>
+            <section class="sectionCard">
+              <div class="row">
+                <button id="profileRefreshBtn">Profil laden</button>
+                <button id="profileBioSaveBtn">Bio speichern</button>
+                <button id="profileBioClearBtn" class="danger">Bio löschen</button>
+              </div>
+              <textarea id="profileBioInput" rows="3" placeholder="Eigene Profil-Biografie"></textarea>
+            </section>
+            <p id="profileMsg" class="msg"></p>
+            <section class="sectionCard">
+              <div id="profileWrap" class="infoBox"></div>
+            </section>
+          </div>
 
-        <h4 class="infoTitle">Job Queue</h4>
-        <div class="row">
-          <select id="adminJobOp">
-            <option value="restart_all">restart_all</option>
-            <option value="git_pull">git_pull</option>
-            <option value="deploy_now">deploy_now</option>
-            <option value="apk_build_debug">apk_build_debug</option>
-          </select>
-          <input id="adminJobRunAt" type="datetime-local" />
-          <button id="adminJobCreateBtn">Job erstellen</button>
-        </div>
-        <div id="adminJobsWrap" class="tableWrap"></div>
-
-        <h4 class="infoTitle">Backup Manager</h4>
-        <div class="row">
-          <button id="adminBackupNowBtn">Backup jetzt</button>
-          <button id="adminBackupCheckBtn">Integritätscheck</button>
-          <button id="adminBackupListBtn">Backups laden</button>
-        </div>
-        <div id="adminBackupsWrap" class="tableWrap"></div>
-
-        <h4 class="infoTitle">Audit Log</h4>
-        <div id="adminAuditWrap" class="tableWrap"></div>
-
-        <h4 class="infoTitle">User & Rollen</h4>
-        <div class="row">
-          <input id="adminRoleChatId" type="text" placeholder="chat_id" />
-          <select id="adminRoleValue">
-            <option value="user">user</option>
-            <option value="admin">admin</option>
-            <option value="owner">owner</option>
-          </select>
-          <button id="adminRoleSetBtn">Rolle setzen</button>
-        </div>
-        <div id="adminUsersWrap" class="tableWrap"></div>
-      </div>
-
-      <div id="tab-profile" class="tab hidden">
-        <h3>Owner Profil</h3>
-        <div class="row">
-          <button id="profileRefreshBtn">Profil laden</button>
-          <button id="profileBioSaveBtn">Bio speichern</button>
-          <button id="profileBioClearBtn" class="danger">Bio löschen</button>
-        </div>
-        <textarea id="profileBioInput" rows="3" placeholder="Eigene Profil-Biografie"></textarea>
-        <p id="profileMsg" class="msg"></p>
-        <div id="profileWrap" class="infoBox"></div>
-      </div>
-
-      <div id="tab-info" class="tab hidden">
-        <h3>Informationen zum Server und Bot</h3>
-        <p id="infoMsg" class="msg"></p>
-        <div id="infoBox" class="infoBox"></div>
-      </div>
+          <div id="tab-info" class="tab hidden">
+            <h3>Live Übersicht</h3>
+            <p class="tabLead">Kompakte Live-Informationen zum Server, Bot und zur Owner-App.</p>
+            <p id="infoMsg" class="msg"></p>
+            <section class="sectionCard">
+              <div id="infoBox" class="infoBox"></div>
+            </section>
+          </div>
         </main>
       </div>
     </section>
