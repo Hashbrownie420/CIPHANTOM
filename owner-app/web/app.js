@@ -1003,6 +1003,16 @@ function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, Math.max(0, Number(ms || 0))));
 }
 
+function isLikelyRestartDisconnect(err) {
+  const msg = String(err?.message || err || "").toLowerCase();
+  return (
+    msg.includes("networkerror") ||
+    msg.includes("failed to fetch") ||
+    msg.includes("load failed") ||
+    msg.includes("network request failed")
+  );
+}
+
 async function forgeHttpRequest(step) {
   const method = String(step.method || "GET").toUpperCase();
   const url = String(step.url || "").trim();
@@ -1061,11 +1071,22 @@ async function runForgeWorkflow(workflow) {
         const target = String(step.target || "").toLowerCase();
         const action = String(step.action || "").toLowerCase();
         appendForgeLog(`${label}: ${target} ${action}`);
-        const r = await api(`/api/process/${encodeURIComponent(target)}/action`, {
-          method: "POST",
-          body: JSON.stringify({ action }),
-        });
-        if (!r.ok) throw new Error("Prozessaktion fehlgeschlagen");
+        try {
+          const r = await api(`/api/process/${encodeURIComponent(target)}/action`, {
+            method: "POST",
+            body: JSON.stringify({ action }),
+          });
+          if (!r.ok) throw new Error("Prozessaktion fehlgeschlagen");
+        } catch (err) {
+          const isSelfRestart = target === "app" && action === "restart";
+          if (isSelfRestart && isLikelyRestartDisconnect(err)) {
+            const waitMs = Number(step.restartWaitMs || 3500);
+            appendForgeLog(`${label}: Verbindungsabbruch beim App-Neustart erwartet, warte ${waitMs}ms...`);
+            await delay(waitMs);
+          } else {
+            throw err;
+          }
+        }
       } else if (type === "admin_op") {
         const op = String(step.op || "").trim();
         appendForgeLog(`${label}: admin-op ${op}`);
