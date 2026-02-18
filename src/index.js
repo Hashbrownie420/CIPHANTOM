@@ -705,7 +705,12 @@ function startOwnerApkUrlWatcher(sock) {
     const lastAttemptTs = state.lastAttemptAt ? new Date(state.lastAttemptAt).getTime() : 0;
     const retryDue = !state.lastSendOk && Date.now() - lastAttemptTs > 60 * 1000;
     if (!urlChanged && !versionChanged && !retryDue) return;
-    buildOwnerApkAndSend(sock, currentUrl, urlChanged || versionChanged ? "url-change" : "retry").catch(() => {});
+    if (urlChanged || versionChanged) {
+      buildOwnerApkAndSend(sock, currentUrl, "url-change").catch(() => {});
+      return;
+    }
+    // Retry should only re-send the already built APK, not rebuild every minute.
+    sendLatestOwnerApkToOwners(sock, "retry-send").catch(() => {});
   }, 15000);
 }
 
