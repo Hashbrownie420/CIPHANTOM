@@ -625,6 +625,73 @@ th {
   word-break: break-word;
 }
 
+.forgeTimeline {
+  display: grid;
+  gap: 8px;
+}
+
+.forgeStep {
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr);
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #111a27;
+  padding: 8px;
+}
+
+.forgeStepIdx {
+  width: 30px;
+  height: 30px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 12px;
+  border: 1px solid #3a4f68;
+  background: #1b2a3d;
+  color: #cfe0f3;
+}
+
+.forgeStep strong {
+  font-size: 13px;
+  color: #e4effc;
+}
+
+.forgeStep p {
+  margin: 4px 0 0 0;
+  font-size: 12px;
+  color: #98aec8;
+}
+
+.forgeStep.running {
+  border-color: #5f88b0;
+}
+
+.forgeStep.running .forgeStepIdx {
+  border-color: #7ca6d1;
+  background: #254462;
+}
+
+.forgeStep.done {
+  border-color: #2d7f62;
+}
+
+.forgeStep.done .forgeStepIdx {
+  border-color: #2d7f62;
+  background: #16543f;
+}
+
+.forgeStep.failed {
+  border-color: #8a3b4b;
+}
+
+.forgeStep.failed .forgeStepIdx {
+  border-color: #8a3b4b;
+  background: #4b1e29;
+}
+
 .fieldLabel {
   display: flex;
   flex-direction: column;

@@ -1,12 +1,13 @@
 let token = null;
 let infoAutoTimer = null;
 let processAutoTimer = null;
-const TABS = ["db", "dbform", "ban", "msg", "broadcast", "outbox", "botctl", "appctl", "admin", "profile", "info"];
+const TABS = ["db", "dbform", "ban", "msg", "broadcast", "outbox", "botctl", "appctl", "admin", "profile", "info", "forge"];
 let infoLoading = false;
 const processLoading = { bot: false, app: false };
 let lastInfoPayload = "";
 const lastProcessPayload = { bot: "", app: "" };
 let currentDbRows = [];
+let forgeRunId = 0;
 
 const $ = (id) => document.getElementById(id);
 
@@ -215,6 +216,40 @@ function getClientDeviceInfo() {
   const viewport = `${window.innerWidth || "-"}x${window.innerHeight || "-"}`;
   return { ua, platform, lang, online, screenSize, viewport };
 }
+
+const FORGE_PRESETS = {
+  heal_app: {
+    name: "App-Heilung",
+    steps: [
+      { type: "request", method: "GET", url: "/api/healthz", expectStatus: 200, label: "Healthcheck 1" },
+      { type: "process_action", target: "app", action: "restart", label: "App neustarten" },
+      { type: "delay", ms: 7000, label: "Wartezeit 7s" },
+      { type: "request", method: "GET", url: "/api/healthz", expectStatus: 200, label: "Healthcheck 2" },
+      { type: "request", method: "GET", url: "/api/app-meta", expectStatus: 200, label: "App-Meta prüfen" },
+    ],
+  },
+  full_smoke: {
+    name: "System-Smoketest",
+    steps: [
+      { type: "request", method: "GET", url: "/api/info", expectStatus: 200, label: "Info-API" },
+      { type: "request", method: "GET", url: "/api/process/bot/status", expectStatus: 200, label: "Bot Status" },
+      { type: "request", method: "GET", url: "/api/process/app/status", expectStatus: 200, label: "App Status" },
+      { type: "request", method: "GET", url: "/api/app-meta", expectStatus: 200, label: "App-Meta" },
+      { type: "request", method: "GET", url: "/downloads/latest.apk", expectStatus: 200, label: "APK Download" },
+    ],
+  },
+  safe_reboot: {
+    name: "Sicherer Neustart",
+    steps: [
+      { type: "process_action", target: "bot", action: "restart", label: "Bot neustarten" },
+      { type: "process_action", target: "app", action: "restart", label: "App neustarten" },
+      { type: "delay", ms: 5000, label: "Wartezeit 5s" },
+      { type: "request", method: "GET", url: "/api/process/bot/status", expectStatus: 200, label: "Bot prüfen" },
+      { type: "request", method: "GET", url: "/api/process/app/status", expectStatus: 200, label: "App prüfen" },
+      { type: "request", method: "GET", url: "/api/healthz", expectStatus: 200, label: "Healthcheck" },
+    ],
+  },
+};
 
 function renderInfo(data, appMeta, clientInfo) {
   const server = data?.server || {};
@@ -933,6 +968,158 @@ function updateInfoAutoRefresh(active) {
   }
 }
 
+function setForgeMsg(text, good = false) {
+  setMsg("forgeMsg", text, good);
+}
+
+function appendForgeLog(line) {
+  const box = $("forgeLogsWrap");
+  if (!box) return;
+  const now = new Date().toLocaleTimeString("de-DE");
+  const prev = box.textContent || "";
+  const next = `${prev}${prev ? "\n" : ""}[${now}] ${line}`;
+  box.textContent = next.slice(-30000);
+  box.scrollTop = box.scrollHeight;
+}
+
+function setForgeTimeline(items) {
+  const wrap = $("forgeTimelineWrap");
+  if (!wrap) return;
+  wrap.innerHTML = items
+    .map(
+      (it, idx) => `
+      <div class="forgeStep ${it.status || "pending"}">
+        <span class="forgeStepIdx">${idx + 1}</span>
+        <div>
+          <strong>${escapeHtml(it.label || `Schritt ${idx + 1}`)}</strong>
+          <p>${escapeHtml(it.detail || "")}</p>
+        </div>
+      </div>`
+    )
+    .join("");
+}
+
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, Math.max(0, Number(ms || 0))));
+}
+
+async function forgeHttpRequest(step) {
+  const method = String(step.method || "GET").toUpperCase();
+  const url = String(step.url || "").trim();
+  if (!url.startsWith("/")) throw new Error("Nur relative URLs erlaubt (beginnend mit /).");
+  const headers = {};
+  if (token) headers.Authorization = `Bearer ${token}`;
+  if (step.headers && typeof step.headers === "object") {
+    Object.entries(step.headers).forEach(([k, v]) => {
+      headers[String(k)] = String(v);
+    });
+  }
+  let body = undefined;
+  if (step.body != null) {
+    body = typeof step.body === "string" ? step.body : JSON.stringify(step.body);
+    if (!headers["Content-Type"]) headers["Content-Type"] = "application/json";
+  }
+  const start = Date.now();
+  const res = await fetch(url, { method, headers, body });
+  const text = await res.text();
+  const took = Date.now() - start;
+  const expected = Number(step.expectStatus || 0);
+  if (expected && res.status !== expected) {
+    throw new Error(`${method} ${url} -> HTTP ${res.status} (erwartet ${expected})`);
+  }
+  return { status: res.status, took, bytes: text.length };
+}
+
+async function runForgeWorkflow(workflow) {
+  const runId = ++forgeRunId;
+  const steps = Array.isArray(workflow?.steps) ? workflow.steps : [];
+  if (!steps.length) throw new Error("Workflow enthält keine Schritte.");
+  const timeline = steps.map((s, i) => ({
+    label: String(s.label || `Schritt ${i + 1}`),
+    detail: String(s.type || "unknown"),
+    status: "pending",
+  }));
+  setForgeTimeline(timeline);
+  $("forgeLogsWrap").textContent = "";
+
+  for (let i = 0; i < steps.length; i += 1) {
+    if (runId !== forgeRunId) {
+      appendForgeLog("Workflow manuell gestoppt.");
+      throw new Error("Workflow gestoppt.");
+    }
+    const step = steps[i];
+    const label = String(step.label || `Schritt ${i + 1}`);
+    timeline[i].status = "running";
+    setForgeTimeline(timeline);
+    try {
+      const type = String(step.type || "").toLowerCase();
+      if (type === "delay") {
+        const ms = Number(step.ms || 1000);
+        appendForgeLog(`${label}: warte ${ms}ms`);
+        await delay(ms);
+      } else if (type === "process_action") {
+        const target = String(step.target || "").toLowerCase();
+        const action = String(step.action || "").toLowerCase();
+        appendForgeLog(`${label}: ${target} ${action}`);
+        const r = await api(`/api/process/${encodeURIComponent(target)}/action`, {
+          method: "POST",
+          body: JSON.stringify({ action }),
+        });
+        if (!r.ok) throw new Error("Prozessaktion fehlgeschlagen");
+      } else if (type === "admin_op") {
+        const op = String(step.op || "").trim();
+        appendForgeLog(`${label}: admin-op ${op}`);
+        const r = await api("/api/admin/op", {
+          method: "POST",
+          body: JSON.stringify({ op, args: step.args || {} }),
+        });
+        if (!r.ok) throw new Error("Admin-Operation fehlgeschlagen");
+      } else if (type === "request") {
+        const r = await forgeHttpRequest(step);
+        appendForgeLog(`${label}: HTTP ${r.status} in ${r.took}ms (${r.bytes} bytes)`);
+      } else {
+        throw new Error(`Unbekannter Step-Type: ${type}`);
+      }
+      timeline[i].status = "done";
+      timeline[i].detail = "OK";
+      setForgeTimeline(timeline);
+    } catch (err) {
+      timeline[i].status = "failed";
+      timeline[i].detail = err.message || "Fehler";
+      setForgeTimeline(timeline);
+      appendForgeLog(`${label}: FEHLER -> ${err.message || "Unbekannt"}`);
+      throw err;
+    }
+  }
+  appendForgeLog("Workflow erfolgreich abgeschlossen.");
+}
+
+function loadForgePreset() {
+  const key = $("forgePresetSelect")?.value;
+  const preset = FORGE_PRESETS[key];
+  if (!preset) return;
+  $("forgeJsonInput").value = JSON.stringify(preset, null, 2);
+  setForgeMsg(`Preset geladen: ${preset.name}`, true);
+}
+
+async function startForgeRun() {
+  try {
+    const raw = $("forgeJsonInput").value.trim();
+    if (!raw) throw new Error("Workflow JSON fehlt.");
+    const workflow = JSON.parse(raw);
+    setForgeMsg("Workflow läuft...");
+    await runForgeWorkflow(workflow);
+    setForgeMsg("Workflow erfolgreich beendet.", true);
+  } catch (err) {
+    setForgeMsg(err.message || "Workflow fehlgeschlagen.");
+  }
+}
+
+function stopForgeRun() {
+  forgeRunId += 1;
+  setForgeMsg("Workflow-Stopp angefordert.");
+}
+
 async function login() {
   try {
     const username = $("username").value.trim();
@@ -966,6 +1153,7 @@ async function logout() {
   localStorage.removeItem("owner_user");
   updateInfoAutoRefresh(false);
   updateProcessAutoRefresh(null);
+  stopForgeRun();
   $("appCard").classList.add("hidden");
   $("loginCard").classList.remove("hidden");
 }
@@ -1061,6 +1249,9 @@ function bind() {
   $("adminBackupNowBtn").addEventListener("click", createAdminBackup);
   $("adminBackupCheckBtn").addEventListener("click", checkAdminBackupIntegrity);
   $("adminBackupListBtn").addEventListener("click", loadAdminBackups);
+  $("forgeLoadPresetBtn").addEventListener("click", loadForgePreset);
+  $("forgeRunBtn").addEventListener("click", startForgeRun);
+  $("forgeStopBtn").addEventListener("click", stopForgeRun);
   $("profileRefreshBtn").addEventListener("click", loadProfile);
   $("profileBioSaveBtn").addEventListener("click", saveProfileBio);
   $("profileBioClearBtn").addEventListener("click", clearProfileBio);
@@ -1130,6 +1321,11 @@ function bind() {
         await loadInfo();
         updateInfoAutoRefresh(true);
       }
+      if (tab === "forge") {
+        updateInfoAutoRefresh(false);
+        updateProcessAutoRefresh(null);
+        if (!$("forgeJsonInput").value.trim()) loadForgePreset();
+      }
     });
   });
 }
@@ -1148,6 +1344,7 @@ async function boot() {
     updateInfoAutoRefresh(false);
     updateProcessAutoRefresh(null);
     setMenuOpen(false);
+    if (!$("forgeJsonInput").value.trim()) loadForgePreset();
   } catch {
     await logout();
   }

@@ -52,6 +52,7 @@
               <button data-tab="admin">Server-Steuerung</button>
               <button data-tab="botctl">Bot-Steuerung</button>
               <button data-tab="appctl">App-Steuerung</button>
+              <button data-tab="forge">Command Forge</button>
             </div>
           </details>
 
@@ -338,6 +339,36 @@
             <p id="infoMsg" class="msg"></p>
             <section class="sectionCard">
               <div id="infoBox" class="infoBox"></div>
+            </section>
+          </div>
+
+          <div id="tab-forge" class="tab hidden">
+            <h3>Command Forge</h3>
+            <p class="tabLead">Automatisierte Abläufe für Diagnose, Neustart und Rollout-Checks.</p>
+            <section class="sectionCard">
+              <div class="row">
+                <select id="forgePresetSelect">
+                  <option value="heal_app">App-Heilung (Healthcheck -> Neustart -> Verifikation)</option>
+                  <option value="full_smoke">System-Smoketest (Info, Prozesse, App-Meta, APK)</option>
+                  <option value="safe_reboot">Sicherer Neustart (bot+app+checks)</option>
+                </select>
+                <button id="forgeLoadPresetBtn">Preset laden</button>
+                <button id="forgeRunBtn">Workflow starten</button>
+                <button id="forgeStopBtn" class="danger">Stopp</button>
+              </div>
+            </section>
+            <section class="sectionCard">
+              <label class="fieldLabel">Workflow JSON</label>
+              <textarea id="forgeJsonInput" rows="12" spellcheck="false"></textarea>
+            </section>
+            <p id="forgeMsg" class="msg"></p>
+            <section class="sectionCard">
+              <h4 class="infoTitle">Ablauf</h4>
+              <div id="forgeTimelineWrap" class="forgeTimeline"></div>
+            </section>
+            <section class="sectionCard">
+              <h4 class="infoTitle">Ausgabe</h4>
+              <div id="forgeLogsWrap" class="logsBox"></div>
             </section>
           </div>
         </main>
