@@ -50,7 +50,6 @@
             <div class="menuSub">
               <button data-tab="info">Live-Übersicht</button>
               <button data-tab="admin">Server-Steuerung</button>
-              <button data-tab="botctl">Bot-Steuerung</button>
               <button data-tab="appctl">App-Steuerung</button>
               <button data-tab="forge">Command Forge</button>
             </div>
@@ -74,7 +73,7 @@
               <button data-tab="msg">Direktnachricht</button>
               <button data-tab="broadcast">Broadcast-Zentrale</button>
               <button data-tab="botcomposer">Template-Studio</button>
-              <button data-tab="botdiag">Bot-Diagnose</button>
+              <button data-tab="botlookup">Empfänger-Check</button>
             </div>
           </details>
 
@@ -294,21 +293,21 @@
             </section>
           </div>
 
-          <div id="tab-botdiag" class="tab hidden">
-            <h3>Bot-Diagnose</h3>
-            <p class="tabLead">Fehler-/Warnanalyse aus Bot-Logs inklusive schneller Zustandsübersicht.</p>
+          <div id="tab-botlookup" class="tab hidden">
+            <h3>Empfänger-Check</h3>
+            <p class="tabLead">Prüft schnell, ob ein Kontakt im System existiert, gebannt ist und wie der letzte Versandstatus aussieht.</p>
             <section class="sectionCard">
               <div class="row">
-                <input id="botDiagLinesInput" type="number" min="50" max="800" value="220" />
-                <button id="botDiagRefreshBtn">Diagnose aktualisieren</button>
+                <input id="botLookupPhoneInput" type="text" placeholder="Nummer, z. B. 4917612345678" />
+                <button id="botLookupRunBtn">Prüfen</button>
               </div>
             </section>
-            <p id="botDiagMsg" class="msg"></p>
+            <p id="botLookupMsg" class="msg"></p>
             <section class="sectionCard">
-              <div id="botDiagStatsWrap" class="infoBox"></div>
+              <div id="botLookupStatsWrap" class="infoBox"></div>
             </section>
             <section class="sectionCard">
-              <div id="botDiagIssuesWrap" class="logsBox"></div>
+              <div id="botLookupHistoryWrap" class="logsBox"></div>
             </section>
           </div>
 

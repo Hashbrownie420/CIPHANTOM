@@ -1,7 +1,7 @@
 let token = null;
 let infoAutoTimer = null;
 let processAutoTimer = null;
-const TABS = ["db", "dbform", "ban", "msg", "broadcast", "outbox", "dbinsight", "dbexport", "botctl", "botcomposer", "botdiag", "appctl", "admin", "profile", "info", "forge"];
+const TABS = ["db", "dbform", "ban", "msg", "broadcast", "outbox", "dbinsight", "dbexport", "botctl", "botcomposer", "botlookup", "appctl", "admin", "profile", "info", "forge"];
 let infoLoading = false;
 const processLoading = { bot: false, app: false };
 let lastInfoPayload = "";
@@ -823,46 +823,61 @@ async function loadOutbox() {
   }
 }
 
-function collectIssueLines(text) {
-  return stripAnsi(text || "")
-    .split("\n")
-    .map((l) => l.trim())
-    .filter(Boolean)
-    .filter((l) => /(error|warn|exception|timeout|failed|disconnect|reconnect|fatal)/i.test(l))
-    .slice(-120);
+function normalizePhoneLocal(v) {
+  return String(v || "").replace(/[^0-9]/g, "");
 }
 
-async function loadBotDiagnostics() {
+async function loadBotLookup() {
   try {
-    const lines = Math.max(50, Math.min(800, Number($("botDiagLinesInput").value || 220)));
-    setMsg("botDiagMsg", "Diagnose läuft...");
-    const [statusRes, logsRes] = await Promise.all([
-      api("/api/process/bot/status"),
-      api(`/api/process/bot/logs?lines=${lines}`),
+    const phone = normalizePhoneLocal($("botLookupPhoneInput").value);
+    if (!phone) throw new Error("Bitte gültige Nummer eingeben.");
+    setMsg("botLookupMsg", "Prüfung läuft...");
+    const [usersRes, bansRes, outboxRes] = await Promise.all([
+      api(`/api/db/users?limit=500&q=${encodeURIComponent(phone)}`),
+      api("/api/bans"),
+      api("/api/outbox?status=all&limit=300"),
     ]);
-    const issues = [...collectIssueLines(logsRes.out), ...collectIssueLines(logsRes.err)];
-    const unique = [...new Set(issues)].slice(-80);
-    const warnCount = unique.filter((l) => /warn/i.test(l)).length;
-    const errCount = unique.filter((l) => /(error|failed|exception|fatal|timeout)/i.test(l)).length;
-    const s = statusRes.status || {};
-    $("botDiagStatsWrap").innerHTML = `
+
+    const users = Array.isArray(usersRes.rows) ? usersRes.rows : [];
+    const user = users.find((u) => String(u.chat_id || "").includes(phone)) || null;
+    const bans = Array.isArray(bansRes.rows) ? bansRes.rows : [];
+    const ban = bans.find((b) => String(b.chat_id || "").includes(phone)) || null;
+    const outboxRows = Array.isArray(outboxRes.rows) ? outboxRes.rows : [];
+    const history = outboxRows.filter((r) => Object.values(r).some((v) => String(v || "").includes(phone)));
+
+    const sent = history.filter((r) => String(r.status || "").toLowerCase() === "sent").length;
+    const failed = history.filter((r) => String(r.status || "").toLowerCase() === "failed").length;
+    const pending = history.filter((r) => String(r.status || "").toLowerCase() === "pending").length;
+
+    $("botLookupStatsWrap").innerHTML = `
       <div class="infoGrid">
-        <div class="infoCard">${kvRow("Status", s.status || "-")}</div>
-        <div class="infoCard">${kvRow("PID", s.pid ?? "-")}</div>
-        <div class="infoCard">${kvRow("Uptime", fmtUptime(s.uptimeSec || 0))}</div>
-        <div class="infoCard">${kvRow("Neustarts", s.restarts ?? "-")}</div>
-        <div class="infoCard">${kvRow("Warnungen", warnCount)}</div>
-        <div class="infoCard">${kvRow("Fehler", errCount)}</div>
+        <div class="infoCard">${kvRow("Nummer", phone)}</div>
+        <div class="infoCard">${kvRow("User gefunden", user ? "ja" : "nein")}</div>
+        <div class="infoCard">${kvRow("Chat-ID", user?.chat_id || "-")}</div>
+        <div class="infoCard">${kvRow("Profilname", user?.profile_name || "-")}</div>
+        <div class="infoCard">${kvRow("Gebannt", ban ? "ja" : "nein")}</div>
+        <div class="infoCard">${kvRow("Ban bis", ban?.expires_at || (ban ? "permanent" : "-"))}</div>
+        <div class="infoCard">${kvRow("Outbox gesendet", sent)}</div>
+        <div class="infoCard">${kvRow("Outbox pending", pending)}</div>
+        <div class="infoCard">${kvRow("Outbox failed", failed)}</div>
       </div>
     `;
-    $("botDiagIssuesWrap").textContent = unique.length
-      ? unique.join("\n")
-      : "Keine Warnungen/Fehler in den letzten Logs gefunden.";
-    setMsg("botDiagMsg", "Diagnose abgeschlossen.", true);
+
+    const histText = history
+      .slice(-30)
+      .map((r, i) => {
+        const ts = r.updated_at || r.created_at || r.ts || "-";
+        const st = r.status || "-";
+        const snippet = String(r.text || r.message || r.payload || "").slice(0, 120);
+        return `${i + 1}. [${st}] ${ts} ${snippet}`;
+      })
+      .join("\n");
+    $("botLookupHistoryWrap").textContent = histText || "Keine passenden Outbox-Einträge gefunden.";
+    setMsg("botLookupMsg", "Empfänger-Check abgeschlossen.", true);
   } catch (err) {
-    $("botDiagStatsWrap").innerHTML = "";
-    $("botDiagIssuesWrap").textContent = "";
-    setMsg("botDiagMsg", err.message || "Diagnose fehlgeschlagen.");
+    $("botLookupStatsWrap").innerHTML = "";
+    $("botLookupHistoryWrap").textContent = "";
+    setMsg("botLookupMsg", err.message || "Empfänger-Check fehlgeschlagen.");
   }
 }
 
@@ -1553,7 +1568,7 @@ function bind() {
   $("botTplLoadBtn").addEventListener("click", loadBotTemplate);
   $("botTplDeleteBtn").addEventListener("click", deleteBotTemplate);
   $("botTplSendBtn").addEventListener("click", sendBotTemplate);
-  $("botDiagRefreshBtn").addEventListener("click", loadBotDiagnostics);
+  $("botLookupRunBtn").addEventListener("click", loadBotLookup);
   $("loadOutboxBtn").addEventListener("click", loadOutbox);
   $("dbInsightRefreshBtn").addEventListener("click", loadDbInsights);
   $("dbExportPreviewBtn").addEventListener("click", previewDbExport);
@@ -1647,10 +1662,10 @@ function bind() {
         updateProcessAutoRefresh(null);
         refreshBotTemplateSelect();
       }
-      if (tab === "botdiag") {
+      if (tab === "botlookup") {
         updateInfoAutoRefresh(false);
         updateProcessAutoRefresh(null);
-        await loadBotDiagnostics();
+        await loadBotLookup();
       }
       if (tab === "outbox") {
         updateInfoAutoRefresh(false);
