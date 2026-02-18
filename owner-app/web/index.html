@@ -25,9 +25,9 @@
 
     <section id="appCard" class="card hidden appCard">
       <div class="topbar">
-        <div>
-          <h2 class="topTitle">Owner Control Center</h2>
-          <p class="muted">Schneller Zugriff auf Verwaltung, Prozesse und Kommunikation.</p>
+        <div class="topbarText">
+          <h2 class="topTitle">CIPHERPHANTOM Control Center</h2>
+          <p class="muted">Ein Dashboard für Bot, App, Daten und Server-Administration.</p>
         </div>
         <button id="menuToggle" class="iconBtn" aria-label="Menü öffnen">☰</button>
       </div>
@@ -37,44 +37,54 @@
       <div class="appShell">
         <aside id="menuDrawer" class="menu menuDrawer">
           <button id="menuClose" class="iconBtn menuCloseBtn" aria-label="Menü schließen">✕</button>
-          <div class="menuHead">
-            <strong>Menü</strong>
+          <div class="menuHead menuBrand">
+            <strong>Navigation</strong>
+            <span>Owner Panel</span>
           </div>
 
-          <div class="menuSection">
-            <h4>📊 Übersicht</h4>
-            <button data-tab="info">🧠 Server/Bot Infos</button>
-            <button data-tab="profile">👤 Profil</button>
-          </div>
+          <details class="menuSection" open>
+            <summary>Übersicht</summary>
+            <div class="menuSub">
+              <button data-tab="info">Server/Bot Infos</button>
+              <button data-tab="profile">Profil</button>
+            </div>
+          </details>
+
+          <details class="menuSection" open>
+            <summary>Daten</summary>
+            <div class="menuSub">
+              <button data-tab="db">Datenbanken</button>
+              <button data-tab="dbform">DB Formular</button>
+              <button data-tab="outbox">Outbox Status</button>
+            </div>
+          </details>
+
+          <details class="menuSection">
+            <summary>Kommunikation</summary>
+            <div class="menuSub">
+              <button data-tab="msg">Nachrichten Tool</button>
+              <button data-tab="broadcast">Broadcast</button>
+            </div>
+          </details>
+
+          <details class="menuSection">
+            <summary>Moderation</summary>
+            <div class="menuSub">
+              <button data-tab="ban">Nutzer bannen</button>
+            </div>
+          </details>
+
+          <details class="menuSection" open>
+            <summary>System</summary>
+            <div class="menuSub">
+              <button data-tab="botctl">Bot Kontrolle</button>
+              <button data-tab="appctl">App Kontrolle</button>
+              <button data-tab="admin">Server Admin</button>
+            </div>
+          </details>
 
           <div class="menuSection">
-            <h4>🗄️ Daten</h4>
-            <button data-tab="db">📚 Datenbanken</button>
-            <button data-tab="dbform">📝 DB Formular</button>
-            <button data-tab="outbox">📬 Outbox Status</button>
-          </div>
-
-          <div class="menuSection">
-            <h4>📣 Kommunikation</h4>
-            <button data-tab="msg">💬 Nachrichten Tool</button>
-            <button data-tab="broadcast">📡 Broadcast</button>
-          </div>
-
-          <div class="menuSection">
-            <h4>🛡️ Moderation</h4>
-            <button data-tab="ban">🚫 Nutzer bannen</button>
-          </div>
-
-          <div class="menuSection">
-            <h4>⚙️ Prozesse</h4>
-            <button data-tab="botctl">🤖 Bot Kontrolle</button>
-            <button data-tab="appctl">📱 App Kontrolle</button>
-            <button data-tab="admin">🛠️ Server Admin</button>
-          </div>
-
-          <div class="menuSection">
-            <h4>🔒 Konto</h4>
-            <button id="logoutBtn" class="danger">⎋ Logout</button>
+            <button id="logoutBtn" class="danger">Logout</button>
           </div>
         </aside>
 

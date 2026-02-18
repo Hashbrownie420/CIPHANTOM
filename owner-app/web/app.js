@@ -47,7 +47,12 @@ function showTab(name) {
 
 function setActiveNav(name) {
   document.querySelectorAll(".menu button[data-tab]").forEach((btn) => {
-    btn.classList.toggle("active", btn.getAttribute("data-tab") === name);
+    const isActive = btn.getAttribute("data-tab") === name;
+    btn.classList.toggle("active", isActive);
+    if (isActive) {
+      const group = btn.closest("details");
+      if (group) group.open = true;
+    }
   });
 }
 
