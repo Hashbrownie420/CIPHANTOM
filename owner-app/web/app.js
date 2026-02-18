@@ -617,6 +617,65 @@ async function adminAction(target, action) {
   }
 }
 
+function confirmDangerActionWithCountdown(title, text, seconds = 10) {
+  return new Promise((resolve) => {
+    const backdrop = document.createElement("div");
+    backdrop.className = "dangerModalBackdrop";
+    const modal = document.createElement("div");
+    modal.className = "dangerModal";
+    const heading = document.createElement("h4");
+    heading.textContent = title;
+    const body = document.createElement("p");
+    body.textContent = text;
+    const countdown = document.createElement("p");
+    countdown.className = "dangerModalCountdown";
+    const row = document.createElement("div");
+    row.className = "row";
+    const cancelBtn = document.createElement("button");
+    cancelBtn.textContent = "Abbrechen";
+    const confirmBtn = document.createElement("button");
+    confirmBtn.className = "danger";
+    confirmBtn.disabled = true;
+
+    let left = Math.max(1, Number(seconds) || 10);
+    const render = () => {
+      countdown.textContent = left > 0
+        ? `Sicherheits-Countdown: ${left}s`
+        : "Countdown abgelaufen: Aktion freigegeben.";
+      confirmBtn.textContent = left > 0 ? `Warten (${left}s)` : "Jetzt ausführen";
+      confirmBtn.disabled = left > 0;
+    };
+    render();
+
+    const timer = setInterval(() => {
+      left -= 1;
+      render();
+      if (left <= 0) clearInterval(timer);
+    }, 1000);
+
+    const close = (result) => {
+      clearInterval(timer);
+      backdrop.remove();
+      resolve(Boolean(result));
+    };
+
+    cancelBtn.addEventListener("click", () => close(false));
+    confirmBtn.addEventListener("click", () => close(true));
+    backdrop.addEventListener("click", (ev) => {
+      if (ev.target === backdrop) close(false);
+    });
+
+    row.appendChild(cancelBtn);
+    row.appendChild(confirmBtn);
+    modal.appendChild(heading);
+    modal.appendChild(body);
+    modal.appendChild(countdown);
+    modal.appendChild(row);
+    backdrop.appendChild(modal);
+    document.body.appendChild(backdrop);
+  });
+}
+
 async function loadProfile() {
   try {
     const data = await api("/api/me");
@@ -807,9 +866,21 @@ function bind() {
   $("adminRefreshBtn").addEventListener("click", loadAdminPanel);
   $("adminRestartBotBtn").addEventListener("click", () => adminAction("bot", "restart"));
   $("adminRestartAppBtn").addEventListener("click", () => adminAction("app", "restart"));
-  $("adminRestartAllBtn").addEventListener("click", () => adminAction("all", "restart"));
+  $("adminRestartAllBtn").addEventListener("click", async () => {
+    const ok = await confirmDangerActionWithCountdown(
+      "Alles neustarten",
+      "Bot und App werden neu gestartet. Fortfahren?",
+      5
+    );
+    if (!ok) return;
+    await adminAction("all", "restart");
+  });
   $("adminRestartServerBtn").addEventListener("click", async () => {
-    const ok = window.confirm("Server wirklich neustarten?");
+    const ok = await confirmDangerActionWithCountdown(
+      "Server neustarten",
+      "Der Server fährt neu hoch. Verbindung wird kurz unterbrochen.",
+      10
+    );
     if (!ok) return;
     await adminAction("server", "restart");
   });

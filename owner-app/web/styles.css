@@ -419,6 +419,40 @@ th {
   z-index: 30;
 }
 
+.dangerModalBackdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(2, 6, 23, 0.72);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1200;
+}
+
+.dangerModal {
+  width: min(92vw, 460px);
+  border: 1px solid #334155;
+  border-radius: 12px;
+  background: #0b1220;
+  padding: 14px;
+  box-shadow: 0 14px 35px rgba(0, 0, 0, 0.42);
+}
+
+.dangerModal h4 {
+  margin: 0 0 8px 0;
+  color: #fecaca;
+}
+
+.dangerModal p {
+  margin: 0 0 10px 0;
+  color: #cbd5e1;
+}
+
+.dangerModalCountdown {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: #fda4af;
+}
+
 @media (max-width: 980px) {
   .wrap { margin: 10px auto; }
   .head pre { font-size: 12px; }
