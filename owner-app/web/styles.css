@@ -1,14 +1,14 @@
 :root {
-  --bg: #06101f;
-  --bg-soft: #101c33;
-  --card: #0c162a;
-  --line: #243454;
-  --line-2: #2d4169;
-  --text: #e9eef8;
-  --muted: #9caec9;
+  --bg: #070b12;
+  --bg-soft: #101720;
+  --card: #0f161f;
+  --line: #1f2a38;
+  --line-2: #2b3a4c;
+  --text: #dce5f2;
+  --muted: #8ea0b8;
   --ok: #10b981;
   --bad: #ef4444;
-  --accent: #3dd1ff;
+  --accent: #6fb1dd;
 }
 
 * { box-sizing: border-box; }
@@ -18,9 +18,9 @@ body {
   font-family: "Space Grotesk", "Manrope", "Avenir Next", "Segoe UI", sans-serif;
   color: var(--text);
   background:
-    radial-gradient(900px 500px at 95% -20%, #1e40af55, transparent 62%),
-    radial-gradient(700px 420px at -8% 5%, #0891b255, transparent 58%),
-    linear-gradient(180deg, #050b16 0%, #060f1d 45%, #071426 100%),
+    radial-gradient(900px 500px at 95% -20%, #1a2b4a66, transparent 64%),
+    radial-gradient(700px 420px at -8% 5%, #17334755, transparent 60%),
+    linear-gradient(180deg, #060a10 0%, #070d15 45%, #08101a 100%),
     var(--bg);
 }
 
@@ -99,7 +99,7 @@ button.danger { background: #3f1118; border-color: #9f1239; }
   padding: 8px 10px;
   border: 1px solid var(--line);
   border-radius: 12px;
-  background: linear-gradient(160deg, #0f223f 0%, #0b1830 100%);
+  background: linear-gradient(160deg, #131c2a 0%, #101925 100%);
 }
 
 .topbarText {
@@ -108,7 +108,7 @@ button.danger { background: #3f1118; border-color: #9f1239; }
 
 .topTitle {
   margin: 0 0 4px 0;
-  color: #e8f3ff;
+  color: #e2eaf6;
   letter-spacing: 0.2px;
 }
 
@@ -133,7 +133,7 @@ button.danger { background: #3f1118; border-color: #9f1239; }
 .menuDrawer {
   border: 1px solid var(--line);
   border-radius: 14px;
-  background: linear-gradient(180deg, #0b1730 0%, #0b1326 100%);
+  background: linear-gradient(180deg, #0f1621 0%, #0c131c 100%);
   padding: 12px;
   align-self: start;
   position: sticky;
@@ -161,7 +161,7 @@ button.danger { background: #3f1118; border-color: #9f1239; }
 
 .menuBrand span {
   font-size: 12px;
-  color: #93c5fd;
+  color: #87a6c6;
 }
 
 .menuCloseBtn {
@@ -180,9 +180,9 @@ button.danger { background: #3f1118; border-color: #9f1239; }
 .menuSection {
   border: 1px solid var(--line);
   border-radius: 10px;
-  padding: 6px;
+  padding: 5px;
   margin-bottom: 8px;
-  background: #0f1a31;
+  background: #101925;
 }
 
 .menuSection summary {
@@ -194,10 +194,11 @@ button.danger { background: #3f1118; border-color: #9f1239; }
   font-weight: 700;
   letter-spacing: 0.4px;
   text-transform: uppercase;
-  color: #a7d8ff;
+  color: #c2d3e6;
   cursor: pointer;
   user-select: none;
-  background: #10203b;
+  background: #152132;
+  border: 1px solid #263447;
 }
 
 .menuSection summary::-webkit-details-marker {
@@ -205,32 +206,35 @@ button.danger { background: #3f1118; border-color: #9f1239; }
 }
 
 .menuSection[open] summary {
-  color: #dff2ff;
-  border: 1px solid #2c4f7f;
+  color: #e8f0fa;
+  border: 1px solid #35506c;
+  background: #19283c;
 }
 
 .menuSub {
   display: grid;
-  gap: 6px;
+  gap: 5px;
   margin-top: 8px;
+  padding: 6px 4px 4px 10px;
+  border-left: 2px solid #2c3e54;
 }
 
 .menu button {
   width: 100%;
   text-align: left;
   margin: 0;
-  border: 1px solid #27406a;
-  background: #122442;
-  color: #dbeafe;
+  border: 1px solid #2a384b;
+  background: #121b27;
+  color: #cedaea;
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 500;
 }
 
 .menu button.active {
-  background: linear-gradient(135deg, #11508c, #0f6c78);
-  border-color: #5cd4ff;
-  color: #f8fafc;
-  box-shadow: 0 8px 16px rgba(56, 189, 248, 0.28);
+  background: linear-gradient(135deg, #234868, #1f4955);
+  border-color: #6e96b9;
+  color: #f2f7ff;
+  box-shadow: 0 6px 14px rgba(21, 34, 49, 0.45);
 }
 
 .panelArea {
