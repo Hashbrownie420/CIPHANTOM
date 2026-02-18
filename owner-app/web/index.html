@@ -82,11 +82,15 @@
             <summary>Sicherheit</summary>
             <div class="menuSub">
               <button data-tab="ban">Sperrverwaltung</button>
-              <button data-tab="profile">Owner Profil</button>
+              <button data-tab="secaccess">Rechte-Check</button>
+              <button data-tab="secwatch">Anomalie-Watch</button>
+              <button data-tab="seclockdown">Notfallmodus</button>
+              <button data-tab="secaudit">Sicherheits-Audit</button>
             </div>
           </details>
 
           <div class="menuSection menuSectionFlat">
+            <button data-tab="profile">Owner Profil</button>
             <button id="logoutBtn" class="danger">Logout</button>
           </div>
         </aside>
@@ -146,6 +150,74 @@
             <p id="banMsg" class="msg"></p>
             <section class="sectionCard">
               <div id="bansWrap" class="tableWrap"></div>
+            </section>
+          </div>
+
+          <div id="tab-secaccess" class="tab hidden">
+            <h3>Rechte-Check</h3>
+            <p class="tabLead">Rollen, privilegierte Nutzer und kritische Befehlsaktivität zentral prüfen.</p>
+            <section class="sectionCard">
+              <div class="row">
+                <button id="secAccessRefreshBtn">Rechte-Check aktualisieren</button>
+              </div>
+            </section>
+            <p id="secAccessMsg" class="msg"></p>
+            <section class="sectionCard">
+              <div id="secAccessCardsWrap" class="infoBox"></div>
+            </section>
+            <section class="sectionCard">
+              <h4 class="infoTitle">Risikoreichste Akteure (24h)</h4>
+              <div id="secAccessActorsWrap" class="tableWrap"></div>
+            </section>
+          </div>
+
+          <div id="tab-secwatch" class="tab hidden">
+            <h3>Anomalie-Watch</h3>
+            <p class="tabLead">Erkennt auffällige Aktivität wie Befehls-Bursts, Fehlerspitzen und Outbox-Fehlerwellen.</p>
+            <section class="sectionCard">
+              <div class="row">
+                <input id="secWatchHoursInput" type="number" min="1" max="72" value="24" placeholder="Analysefenster in Stunden" />
+                <input id="secWatchBurstInput" type="number" min="5" max="200" value="25" placeholder="Burst-Schwelle" />
+                <button id="secWatchRefreshBtn">Anomalien prüfen</button>
+              </div>
+            </section>
+            <p id="secWatchMsg" class="msg"></p>
+            <section class="sectionCard">
+              <div id="secWatchTableWrap" class="tableWrap"></div>
+            </section>
+          </div>
+
+          <div id="tab-seclockdown" class="tab hidden">
+            <h3>Notfallmodus</h3>
+            <p class="tabLead">Schnelle Sicherheitsaktionen: Prozesse stoppen, Flags härten oder sicheren Standard wiederherstellen.</p>
+            <section class="sectionCard">
+              <div class="row">
+                <button id="secLockdownBtn" class="danger">Sofort-Lockdown</button>
+                <button id="secStopBotBtn" class="danger">Nur Bot stoppen</button>
+                <button id="secStopAppBtn" class="danger">Nur App stoppen</button>
+                <button id="secRestoreSafeBtn">Sicheren Standard setzen</button>
+              </div>
+            </section>
+            <p id="secLockMsg" class="msg"></p>
+            <section class="sectionCard">
+              <h4 class="infoTitle">Aktueller Sicherheitsstatus</h4>
+              <div id="secLockStatusWrap" class="infoBox"></div>
+            </section>
+          </div>
+
+          <div id="tab-secaudit" class="tab hidden">
+            <h3>Sicherheits-Audit</h3>
+            <p class="tabLead">Zeigt sicherheitsrelevante Admin-Aktionen der letzten Stunden mit Zeitfenster-Filter.</p>
+            <section class="sectionCard">
+              <div class="row">
+                <input id="secAuditHoursInput" type="number" min="1" max="168" value="48" placeholder="Zeitraum in Stunden" />
+                <input id="secAuditLimitInput" type="number" min="20" max="1000" value="200" placeholder="Max. Einträge" />
+                <button id="secAuditRefreshBtn">Audit laden</button>
+              </div>
+            </section>
+            <p id="secAuditMsg" class="msg"></p>
+            <section class="sectionCard">
+              <div id="secAuditWrap" class="tableWrap"></div>
             </section>
           </div>
 

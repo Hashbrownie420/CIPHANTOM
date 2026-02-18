@@ -1,7 +1,7 @@
 let token = null;
 let infoAutoTimer = null;
 let processAutoTimer = null;
-const TABS = ["db", "dbform", "ban", "msg", "broadcast", "outbox", "dbinsight", "dbexport", "botctl", "botcomposer", "botlookup", "botstats", "appctl", "admin", "profile", "info", "forge"];
+const TABS = ["db", "dbform", "ban", "secaccess", "secwatch", "seclockdown", "secaudit", "msg", "broadcast", "outbox", "dbinsight", "dbexport", "botctl", "botcomposer", "botlookup", "botstats", "appctl", "admin", "profile", "info", "forge"];
 let infoLoading = false;
 const processLoading = { bot: false, app: false };
 let lastInfoPayload = "";
@@ -886,6 +886,12 @@ function parseTs(ts) {
   return Number.isFinite(v) ? v : NaN;
 }
 
+function withinHours(ts, hours) {
+  const t = parseTs(ts);
+  if (!Number.isFinite(t)) return false;
+  return t >= Date.now() - Math.max(1, Number(hours || 24)) * 60 * 60 * 1000;
+}
+
 function isoWeekBucket(ts) {
   const d = new Date(ts);
   const day = (d.getUTCDay() + 6) % 7;
@@ -1045,6 +1051,241 @@ async function loadBotStats() {
     $("botStatsTopCmdWrap").innerHTML = "";
     $("botStatsWeeklyWrap").innerHTML = "";
     setMsg("botStatsMsg", err.message || "Statistik konnte nicht geladen werden.");
+  }
+}
+
+function collectRiskyCommandStats(rows, hours = 24) {
+  const risky = new Set([
+    "ban", "purge", "ownerpass", "set_user_role", "process_action_all", "server_restart",
+    "deploy_now", "apk_build_debug", "pm2_resurrect", "pm2_save",
+  ]);
+  const byActor = {};
+  (rows || []).forEach((r) => {
+    if (!withinHours(r.created_at, hours)) return;
+    const cmd = String(r.command || "").trim();
+    if (!risky.has(cmd)) return;
+    const actor = String(r.actor_id || "unknown");
+    if (!byActor[actor]) byActor[actor] = { actor_id: actor, risky_cmds: 0, letzter_befehl: cmd };
+    byActor[actor].risky_cmds += 1;
+    byActor[actor].letzter_befehl = cmd;
+  });
+  return Object.values(byActor).sort((a, b) => b.risky_cmds - a.risky_cmds).slice(0, 20);
+}
+
+async function loadSecurityAccess() {
+  try {
+    setMsg("secAccessMsg", "Rechte-Check wird geladen...");
+    const [alertsRes, summaryRes, flagsRes, users, bans, errors, audit] = await Promise.all([
+      api("/api/admin/alerts"),
+      api("/api/admin/summary"),
+      api("/api/admin/flags"),
+      fetchTableRowsForExport("users", 5000),
+      fetchTableRowsForExport("bans", 5000),
+      fetchTableRowsForExport("error_logs", 5000),
+      fetchTableRowsForExport("owner_audit_logs", 20000),
+    ]);
+    const alerts = Array.isArray(alertsRes.alerts) ? alertsRes.alerts : [];
+    const criticalAlerts = alerts.filter((a) => String(a.level || "").toLowerCase() === "critical").length;
+    const warningAlerts = alerts.filter((a) => String(a.level || "").toLowerCase() === "warning").length;
+    const roleRows = Array.isArray(users) ? users : [];
+    const owners = roleRows.filter((u) => String(u.user_role || "").toLowerCase() === "owner").length;
+    const admins = roleRows.filter((u) => String(u.user_role || "").toLowerCase() === "admin").length;
+    const usersOnly = roleRows.filter((u) => String(u.user_role || "").toLowerCase() === "user").length;
+    const errors24h = (Array.isArray(errors) ? errors : []).filter((e) => withinHours(e.last_seen_at || e.created_at, 24)).length;
+    const riskyRows = collectRiskyCommandStats(Array.isArray(audit) ? audit : [], 24);
+    const process = summaryRes?.processes || {};
+    const flags = flagsRes?.flags || {};
+
+    $("secAccessCardsWrap").innerHTML = `
+      <div class="infoGrid">
+        <div class="infoCard">${kvRow("Alerts kritisch", criticalAlerts)}</div>
+        <div class="infoCard">${kvRow("Alerts Warnung", warningAlerts)}</div>
+        <div class="infoCard">${kvRow("Owner", owners)}</div>
+        <div class="infoCard">${kvRow("Admins", admins)}</div>
+        <div class="infoCard">${kvRow("User", usersOnly)}</div>
+        <div class="infoCard">${kvRow("Aktive Bans", (Array.isArray(bans) ? bans : []).length)}</div>
+        <div class="infoCard">${kvRow("Fehler (24h)", errors24h)}</div>
+        <div class="infoCard">${kvRow("Bot Status", process?.bot?.status || "-")}</div>
+        <div class="infoCard">${kvRow("App Status", process?.app?.status || "-")}</div>
+        <div class="infoCard">${kvRow("Deploy erlaubt", flags.deployEnabled ? "ja" : "nein")}</div>
+        <div class="infoCard">${kvRow("APK-Build erlaubt", flags.apkBuildEnabled ? "ja" : "nein")}</div>
+        <div class="infoCard">${kvRow("Server-Reboot erlaubt", flags.rebootEnabled ? "ja" : "nein")}</div>
+      </div>
+    `;
+    $("secAccessActorsWrap").innerHTML = renderTable(riskyRows);
+    setMsg("secAccessMsg", "Rechte-Check geladen.", true);
+  } catch (err) {
+    $("secAccessCardsWrap").innerHTML = "";
+    $("secAccessActorsWrap").innerHTML = "";
+    setMsg("secAccessMsg", err.message || "Rechte-Check fehlgeschlagen.");
+  }
+}
+
+async function loadSecurityWatch() {
+  try {
+    const hours = Math.max(1, Math.min(72, Number($("secWatchHoursInput").value || 24)));
+    const burstThreshold = Math.max(5, Math.min(200, Number($("secWatchBurstInput").value || 25)));
+    setMsg("secWatchMsg", "Anomalie-Check läuft...");
+    const [audit, errors, outbox] = await Promise.all([
+      fetchTableRowsForExport("owner_audit_logs", 30000),
+      fetchTableRowsForExport("error_logs", 10000),
+      fetchTableRowsForExport("owner_outbox", 20000),
+    ]);
+    const anomalies = [];
+    const cmdRows = (Array.isArray(audit) ? audit : []).filter((r) => withinHours(r.created_at, hours));
+    const burstByActorHour = {};
+    for (const r of cmdRows) {
+      const actor = String(r.actor_id || "unknown");
+      const ts = parseTs(r.created_at);
+      if (!Number.isFinite(ts)) continue;
+      const d = new Date(ts);
+      const hourBucket = `${d.getUTCFullYear()}-${d.getUTCMonth() + 1}-${d.getUTCDate()} ${d.getUTCHours()}:00`;
+      const key = `${actor}|${hourBucket}`;
+      burstByActorHour[key] = (burstByActorHour[key] || 0) + 1;
+    }
+    Object.entries(burstByActorHour).forEach(([k, count]) => {
+      if (count < burstThreshold) return;
+      const [actor, hour] = k.split("|");
+      anomalies.push({
+        typ: "Command-Burst",
+        schwere: count >= burstThreshold * 2 ? "hoch" : "mittel",
+        detail: `${actor} mit ${count} Befehlen in 1h`,
+        zeitfenster: hour,
+      });
+    });
+    const errRows = (Array.isArray(errors) ? errors : []).filter((r) => withinHours(r.last_seen_at || r.created_at, hours));
+    if (errRows.length >= 20) {
+      anomalies.push({
+        typ: "Fehler-Spike",
+        schwere: errRows.length >= 50 ? "hoch" : "mittel",
+        detail: `${errRows.length} Fehler-Logs im Fenster`,
+        zeitfenster: `${hours}h`,
+      });
+    }
+    const failedOutbox = (Array.isArray(outbox) ? outbox : []).filter((r) => withinHours(r.created_at || r.processed_at, hours) && String(r.status || "").toLowerCase() === "failed");
+    if (failedOutbox.length >= 10) {
+      anomalies.push({
+        typ: "Outbox-Fail-Welle",
+        schwere: failedOutbox.length >= 30 ? "hoch" : "mittel",
+        detail: `${failedOutbox.length} fehlgeschlagene Outbox-Einträge`,
+        zeitfenster: `${hours}h`,
+      });
+    }
+    if (!anomalies.length) {
+      anomalies.push({
+        typ: "Status",
+        schwere: "ok",
+        detail: "Keine kritischen Auffälligkeiten erkannt",
+        zeitfenster: `${hours}h`,
+      });
+    }
+    $("secWatchTableWrap").innerHTML = renderTable(anomalies);
+    setMsg("secWatchMsg", "Anomalie-Check abgeschlossen.", true);
+  } catch (err) {
+    $("secWatchTableWrap").innerHTML = "";
+    setMsg("secWatchMsg", err.message || "Anomalie-Check fehlgeschlagen.");
+  }
+}
+
+async function loadSecurityAudit() {
+  try {
+    const hours = Math.max(1, Math.min(168, Number($("secAuditHoursInput").value || 48)));
+    const limit = Math.max(20, Math.min(1000, Number($("secAuditLimitInput").value || 200)));
+    setMsg("secAuditMsg", "Audit wird geladen...");
+    const data = await api(`/api/admin/audit?limit=${limit}`);
+    const risky = new Set([
+      "ban", "unban", "set_user_role", "set_flags", "process_action", "process_action_all",
+      "server_restart", "deploy_now", "apk_build_debug", "pm2_resurrect", "pm2_save", "admin_op",
+    ]);
+    const rows = (Array.isArray(data.rows) ? data.rows : [])
+      .filter((r) => withinHours(r.created_at, hours))
+      .filter((r) => risky.has(String(r.command || "")))
+      .map((r) => ({
+        zeit: r.created_at,
+        akteur: r.actor_id,
+        aktion: r.command,
+        ziel: r.target_id || "-",
+      }));
+    $("secAuditWrap").innerHTML = renderTable(rows);
+    setMsg("secAuditMsg", `Audit geladen: ${rows.length} sicherheitsrelevante Einträge.`, true);
+  } catch (err) {
+    $("secAuditWrap").innerHTML = "";
+    setMsg("secAuditMsg", err.message || "Sicherheits-Audit fehlgeschlagen.");
+  }
+}
+
+async function loadSecurityLockStatus() {
+  try {
+    const [summary, flags] = await Promise.all([api("/api/admin/summary"), api("/api/admin/flags")]);
+    const p = summary?.processes || {};
+    const f = flags?.flags || {};
+    $("secLockStatusWrap").innerHTML = `
+      ${kvRow("Bot Status", p.bot?.status || "-")}
+      ${kvRow("App Status", p.app?.status || "-")}
+      ${kvRow("Deploy erlaubt", f.deployEnabled ? "ja" : "nein")}
+      ${kvRow("APK-Build erlaubt", f.apkBuildEnabled ? "ja" : "nein")}
+      ${kvRow("Reboot erlaubt", f.rebootEnabled ? "ja" : "nein")}
+      ${kvRow("Logstream aktiv", f.logStreamEnabled ? "ja" : "nein")}
+      ${kvRow("Alerts aktiv", f.alertsEnabled ? "ja" : "nein")}
+    `;
+  } catch {
+    $("secLockStatusWrap").innerHTML = "<span class='muted'>Status konnte nicht geladen werden.</span>";
+  }
+}
+
+async function applySecurityPreset(mode) {
+  if (mode === "lockdown") {
+    await api("/api/process/all/action", { method: "POST", body: JSON.stringify({ action: "stop" }) });
+    await api("/api/admin/flags", {
+      method: "POST",
+      body: JSON.stringify({
+        deployEnabled: false,
+        apkBuildEnabled: false,
+        rebootEnabled: false,
+        logStreamEnabled: true,
+        alertsEnabled: true,
+      }),
+    });
+    return;
+  }
+  if (mode === "safe-default") {
+    await api("/api/admin/flags", {
+      method: "POST",
+      body: JSON.stringify({
+        deployEnabled: false,
+        apkBuildEnabled: false,
+        rebootEnabled: false,
+        logStreamEnabled: true,
+        alertsEnabled: true,
+      }),
+    });
+    return;
+  }
+  if (mode === "stop-bot") {
+    await api("/api/process/bot/action", { method: "POST", body: JSON.stringify({ action: "stop" }) });
+    return;
+  }
+  if (mode === "stop-app") {
+    await api("/api/process/app/action", { method: "POST", body: JSON.stringify({ action: "stop" }) });
+  }
+}
+
+async function runSecurityAction(mode) {
+  try {
+    if (mode === "lockdown") {
+      const ok = await confirmDangerActionWithCountdown(
+        "Sofort-Lockdown",
+        "Bot und App werden gestoppt, riskante Flags deaktiviert. Fortfahren?",
+        8
+      );
+      if (!ok) return;
+    }
+    setMsg("secLockMsg", "Aktion läuft...");
+    await applySecurityPreset(mode);
+    await loadSecurityLockStatus();
+    setMsg("secLockMsg", "Sicherheitsaktion erfolgreich ausgeführt.", true);
+  } catch (err) {
+    setMsg("secLockMsg", err.message || "Sicherheitsaktion fehlgeschlagen.");
   }
 }
 
@@ -1737,6 +1978,13 @@ function bind() {
   $("botTplSendBtn").addEventListener("click", sendBotTemplate);
   $("botLookupRunBtn").addEventListener("click", loadBotLookup);
   $("botStatsRefreshBtn").addEventListener("click", loadBotStats);
+  $("secAccessRefreshBtn").addEventListener("click", loadSecurityAccess);
+  $("secWatchRefreshBtn").addEventListener("click", loadSecurityWatch);
+  $("secAuditRefreshBtn").addEventListener("click", loadSecurityAudit);
+  $("secLockdownBtn").addEventListener("click", () => runSecurityAction("lockdown"));
+  $("secStopBotBtn").addEventListener("click", () => runSecurityAction("stop-bot"));
+  $("secStopAppBtn").addEventListener("click", () => runSecurityAction("stop-app"));
+  $("secRestoreSafeBtn").addEventListener("click", () => runSecurityAction("safe-default"));
   $("loadOutboxBtn").addEventListener("click", loadOutbox);
   $("dbInsightRefreshBtn").addEventListener("click", loadDbInsights);
   $("dbExportPreviewBtn").addEventListener("click", previewDbExport);
@@ -1820,6 +2068,26 @@ function bind() {
         updateInfoAutoRefresh(false);
         updateProcessAutoRefresh(null);
         await loadBans();
+      }
+      if (tab === "secaccess") {
+        updateInfoAutoRefresh(false);
+        updateProcessAutoRefresh(null);
+        await loadSecurityAccess();
+      }
+      if (tab === "secwatch") {
+        updateInfoAutoRefresh(false);
+        updateProcessAutoRefresh(null);
+        await loadSecurityWatch();
+      }
+      if (tab === "seclockdown") {
+        updateInfoAutoRefresh(false);
+        updateProcessAutoRefresh(null);
+        await loadSecurityLockStatus();
+      }
+      if (tab === "secaudit") {
+        updateInfoAutoRefresh(false);
+        updateProcessAutoRefresh(null);
+        await loadSecurityAudit();
       }
       if (tab === "msg" || tab === "broadcast") {
         updateInfoAutoRefresh(false);
