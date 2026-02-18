@@ -138,6 +138,7 @@ let ownerOutboxBusy = false;
 const execFileAsync = promisify(execFile);
 let ownerApkWatcherTimer = null;
 let ownerApkBuildRunning = false;
+const OWNER_APK_AUTOBUILD_ENABLED = String(process.env.OWNER_APK_AUTOBUILD || "1").trim() !== "0";
 
 // Einfache ANSI-Farben fuer Terminal-Ausgabe
 const COLORS = {
@@ -688,6 +689,10 @@ async function buildOwnerApkAndSend(sock, url, reason = "watcher") {
 }
 
 function startOwnerApkUrlWatcher(sock) {
+  if (!OWNER_APK_AUTOBUILD_ENABLED) {
+    log("info", "Owner-APK Auto-Build ist deaktiviert (OWNER_APK_AUTOBUILD=0).");
+    return;
+  }
   if (ownerApkWatcherTimer) return;
   ownerApkWatcherTimer = setInterval(() => {
     const lp = readOwnerLocalProperties();
@@ -705,6 +710,7 @@ function startOwnerApkUrlWatcher(sock) {
 }
 
 async function flushPendingOwnerApkSend(sock) {
+  if (!OWNER_APK_AUTOBUILD_ENABLED) return;
   const st = readOwnerAppUrlState();
   if (!st.pendingSend) return;
   try {
