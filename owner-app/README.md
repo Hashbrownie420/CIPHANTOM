@@ -11,6 +11,7 @@ Owner-Panel mit Login und Admin-Tools.
 - Broadcast (an alle User, Gruppen oder beide)
 - Outbox-Status (pending/sent/failed mit Fehlertext)
 - Server- und Bot-Infos anzeigen
+- API-Basisschutz: Rate-Limits auf Login/API + Security-Header
 
 ## Start
 ```bash
@@ -83,6 +84,10 @@ Dann startet `start_remote.sh` automatisch ngrok, liest die HTTPS-URL über `htt
 Optional fuer robusteren Start/Update-Pruefung in der APK:
 - `OWNER_APP_FALLBACK_URL=http://10.17.86.221:8787`
 - `OWNER_UPDATE_URL=https://DEIN-STABILER-ENDPOINT/api/app-meta`
+
+## Security-Optionen
+- Session-TTL (Stunden) per Env:
+  - `OWNER_SESSION_TTL_HOURS=12`
 
 ## Struktur
 - `web/` UI

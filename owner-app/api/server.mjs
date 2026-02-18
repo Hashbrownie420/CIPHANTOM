@@ -49,7 +49,8 @@ const OWNER_IDS = new Set(
 );
 
 const sessions = new Map();
-const SESSION_TTL_MS = 12 * 60 * 60 * 1000;
+const SESSION_TTL_HOURS = Math.max(1, Number(process.env.OWNER_SESSION_TTL_HOURS || 12));
+const SESSION_TTL_MS = SESSION_TTL_HOURS * 60 * 60 * 1000;
 const execFileAsync = promisify(execFile);
 const PROCESS_MAP = {
   bot: ["cipherphantom-bot"],
@@ -57,6 +58,12 @@ const PROCESS_MAP = {
 };
 
 const db = await initDb();
+const rateLimitState = new Map();
+const RATE_LIMITS = {
+  login: { windowMs: 15 * 60 * 1000, max: 12 },
+  api: { windowMs: 60 * 1000, max: 180 },
+  processAction: { windowMs: 60 * 1000, max: 30 },
+};
 
 function formatBytes(bytes) {
   const units = ["B", "KB", "MB", "GB", "TB"];
@@ -87,8 +94,42 @@ function json(res, status, payload) {
     "Content-Type": "application/json; charset=utf-8",
     "Content-Length": Buffer.byteLength(body),
     "Cache-Control": "no-store",
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "Referrer-Policy": "no-referrer",
+    "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
   });
   res.end(body);
+}
+
+function getClientIp(req) {
+  const fwd = String(req.headers["x-forwarded-for"] || "").trim();
+  if (fwd) return fwd.split(",")[0].trim();
+  return String(req.socket?.remoteAddress || "unknown");
+}
+
+function applyRateLimit(req, bucket, key = "") {
+  const conf = RATE_LIMITS[bucket];
+  if (!conf) return { limited: false };
+  const now = Date.now();
+  const ip = getClientIp(req);
+  const mapKey = `${bucket}:${ip}:${key}`;
+  const current = rateLimitState.get(mapKey) || { count: 0, resetAt: now + conf.windowMs };
+  if (now > current.resetAt) {
+    current.count = 0;
+    current.resetAt = now + conf.windowMs;
+  }
+  current.count += 1;
+  rateLimitState.set(mapKey, current);
+  if (current.count > conf.max) {
+    return { limited: true, retryAfterSec: Math.ceil((current.resetAt - now) / 1000) };
+  }
+  return { limited: false };
+}
+
+function rateLimitExceeded(res, limitResult) {
+  res.setHeader("Retry-After", String(limitResult.retryAfterSec || 60));
+  return json(res, 429, { ok: false, error: "Zu viele Anfragen. Bitte kurz warten." });
 }
 
 function hashPassword(password, salt) {
@@ -230,6 +271,9 @@ function sendStatic(req, res) {
     "Content-Type": map[ext] || "application/octet-stream",
     "Content-Length": content.length,
     "Cache-Control": "no-store",
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "Referrer-Policy": "no-referrer",
   });
   res.end(content);
 }
@@ -244,6 +288,7 @@ function sendApk(res, filePath) {
     "Content-Length": content.length,
     "Cache-Control": "no-store",
     "Content-Disposition": "attachment; filename=\"cipherphantom-owner-latest.apk\"",
+    "X-Content-Type-Options": "nosniff",
   });
   res.end(content);
 }
@@ -267,6 +312,7 @@ function sendAvatar(res, fileName) {
     "Content-Type": mime,
     "Content-Length": content.length,
     "Cache-Control": "public, max-age=60",
+    "X-Content-Type-Options": "nosniff",
   });
   res.end(content);
 }
@@ -829,9 +875,15 @@ const server = http.createServer(async (req, res) => {
       }
 
       if (req.method === "POST" && pathname === "/api/login") {
+        const limited = applyRateLimit(req, "login");
+        if (limited.limited) return rateLimitExceeded(res, limited);
         const body = await parseBody(req);
         return login(res, body);
       }
+
+      // Limit authenticated API traffic globally (except bootstrap endpoints above)
+      const apiLimited = applyRateLimit(req, "api");
+      if (apiLimited.limited) return rateLimitExceeded(res, apiLimited);
 
       if (req.method === "POST" && pathname === "/api/logout") {
         const session = requireAuth(req, res);
@@ -965,6 +1017,8 @@ const server = http.createServer(async (req, res) => {
       }
 
       if (req.method === "POST" && pathname.startsWith("/api/process/") && pathname.endsWith("/action")) {
+        const limited = applyRateLimit(req, "processAction");
+        if (limited.limited) return rateLimitExceeded(res, limited);
         const session = requireAuth(req, res);
         if (!session) return;
         const target = pathname.split("/")[3] || "";
