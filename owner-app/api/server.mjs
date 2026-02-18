@@ -34,6 +34,7 @@ const DB_BACKUP_DIR = path.resolve(PROJECT_ROOT, "data", "backups");
 const DB_BACKUP_KEEP = Math.max(1, Number(process.env.OWNER_DB_BACKUP_KEEP || 20));
 const ADMIN_FLAGS_FILE = path.resolve(PROJECT_ROOT, "data", "admin-flags.json");
 const ADMIN_JOBS_FILE = path.resolve(PROJECT_ROOT, "data", "admin-jobs.json");
+const SESSION_STORE_FILE = path.resolve(PROJECT_ROOT, "data", "owner-sessions.json");
 const ANDROID_LOCAL_PROPERTIES = path.resolve(OWNER_DIR, "android", "local.properties");
 const DEFAULT_APK_FILE = path.resolve(
   OWNER_DIR,
@@ -77,6 +78,48 @@ const RATE_LIMITS = {
   processAction: { windowMs: 60 * 1000, max: 30 },
 };
 let adminJobTimer = null;
+
+function persistSessions() {
+  try {
+    const dir = path.dirname(SESSION_STORE_FILE);
+    fs.mkdirSync(dir, { recursive: true });
+    const now = Date.now();
+    const list = Array.from(sessions.values())
+      .filter((s) => s && s.token && Number(s.expiresAt || 0) > now)
+      .map((s) => ({
+        token: String(s.token),
+        chatId: String(s.chatId || ""),
+        username: String(s.username || ""),
+        expiresAt: Number(s.expiresAt || 0),
+      }));
+    fs.writeFileSync(SESSION_STORE_FILE, JSON.stringify({ sessions: list }, null, 2), "utf8");
+  } catch {
+    // keep runtime sessions even if persistence fails
+  }
+}
+
+function loadPersistedSessions() {
+  try {
+    if (!fs.existsSync(SESSION_STORE_FILE)) return;
+    const raw = fs.readFileSync(SESSION_STORE_FILE, "utf8");
+    const parsed = JSON.parse(raw);
+    const list = Array.isArray(parsed?.sessions) ? parsed.sessions : [];
+    const now = Date.now();
+    list.forEach((s) => {
+      const token = String(s?.token || "").trim();
+      const expiresAt = Number(s?.expiresAt || 0);
+      if (!token || expiresAt <= now) return;
+      sessions.set(token, {
+        token,
+        chatId: String(s?.chatId || ""),
+        username: String(s?.username || ""),
+        expiresAt,
+      });
+    });
+  } catch {
+    // ignore broken persistence file
+  }
+}
 
 function formatBytes(bytes) {
   const units = ["B", "KB", "MB", "GB", "TB"];
@@ -207,6 +250,7 @@ function getSession(req) {
   if (!s) return null;
   if (Date.now() > s.expiresAt) {
     sessions.delete(token);
+    persistSessions();
     return null;
   }
   return s;
@@ -826,6 +870,7 @@ async function login(res, body) {
     username: row.profile_name,
     expiresAt,
   });
+  persistSessions();
   return json(res, 200, {
     ok: true,
     token,
@@ -837,6 +882,7 @@ async function login(res, body) {
 function logout(req, res) {
   const token = getTokenFromReq(req);
   if (token) sessions.delete(token);
+  persistSessions();
   return json(res, 200, { ok: true });
 }
 
@@ -1825,7 +1871,9 @@ const server = http.createServer(async (req, res) => {
 });
 
 startAdminJobsWorker();
+loadPersistedSessions();
 
 server.listen(PORT, HOST, () => {
   logStartupOverview();
+  console.log(`[owner-app] sessions_loaded=${sessions.size} store=${SESSION_STORE_FILE}`);
 });
