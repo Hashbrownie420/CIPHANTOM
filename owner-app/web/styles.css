@@ -67,6 +67,8 @@ input, select, button {
   background: #0b1220;
   color: var(--text);
   padding: 10px 12px;
+  min-height: 42px;
+  font-size: 15px;
 }
 textarea {
   width: 100%;
@@ -77,6 +79,8 @@ textarea {
   padding: 10px 12px;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   resize: vertical;
+  min-height: 96px;
+  font-size: 15px;
 }
 
 button {
@@ -126,19 +130,28 @@ button.danger { background: #3f1118; border-color: #9f1239; }
 
 .appShell {
   display: grid;
-  grid-template-columns: 300px minmax(0, 1fr);
-  gap: 14px;
+  grid-template-columns: 1fr;
+  gap: 0;
 }
 
 .menuDrawer {
+  position: fixed;
+  top: 0;
+  right: calc(-1 * min(90vw, 340px));
+  width: min(90vw, 340px);
+  height: 100vh;
+  z-index: 40;
+  overflow-y: auto;
   border: 1px solid var(--line);
-  border-radius: 14px;
+  border-radius: 0;
   background: linear-gradient(180deg, #0f1621 0%, #0c131c 100%);
   padding: 12px;
-  align-self: start;
-  position: sticky;
-  top: 10px;
-  transition: border-color 220ms ease, box-shadow 220ms ease;
+  transition: right 0.24s cubic-bezier(.2,.8,.2,1), border-color 220ms ease, box-shadow 220ms ease;
+  box-shadow: -12px 0 26px rgba(2, 6, 23, 0.58);
+}
+
+.menuDrawer.open {
+  right: 0;
 }
 
 .menuHead {
@@ -199,10 +212,22 @@ button.danger { background: #3f1118; border-color: #9f1239; }
   user-select: none;
   background: #152132;
   border: 1px solid #263447;
+  position: relative;
+  padding-right: 26px;
 }
 
 .menuSection summary::-webkit-details-marker {
   display: none;
+}
+
+.menuSection summary::after {
+  content: "▸";
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: #8eaac6;
+  transition: transform 180ms ease, color 180ms ease;
 }
 
 .menuSection[open] summary {
@@ -211,12 +236,33 @@ button.danger { background: #3f1118; border-color: #9f1239; }
   background: #19283c;
 }
 
+.menuSection[open] summary::after {
+  transform: translateY(-50%) rotate(90deg);
+  color: #b4d7f5;
+}
+
+.menuSection > :not(summary) {
+  display: block;
+}
+
 .menuSub {
   display: grid;
   gap: 5px;
   margin-top: 8px;
   padding: 6px 4px 4px 10px;
   border-left: 2px solid #2c3e54;
+  margin-left: 6px;
+  max-height: 0;
+  opacity: 0;
+  overflow: hidden;
+  transform: translateY(-4px);
+  transition: max-height 240ms ease, opacity 200ms ease, transform 220ms ease;
+}
+
+.menuSection[open] .menuSub {
+  max-height: 260px;
+  opacity: 1;
+  transform: translateY(0);
 }
 
 .menu button {
@@ -275,6 +321,12 @@ button.danger { background: #3f1118; border-color: #9f1239; }
 .row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
 .row2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 8px; margin-top: 10px; }
 .msg { min-height: 20px; color: var(--muted); margin-top: 10px; }
+
+.row > input,
+.row > select,
+.row > button {
+  flex: 1 1 180px;
+}
 
 .tableWrap {
   margin-top: 12px;
@@ -544,26 +596,8 @@ th {
   .wrap { margin: 10px auto; }
   .head pre { font-size: 12px; }
   .head pre.brandbox { font-size: 15px !important; }
-  .appShell { grid-template-columns: 1fr; }
   .panelArea { min-height: 300px; }
-  .menuDrawer {
-    position: fixed;
-    top: 0;
-    right: -320px;
-    width: 300px;
-    height: 100vh;
-    z-index: 40;
-    border-radius: 0;
-    border-left: 1px solid var(--line);
-    border-top: none;
-    border-bottom: none;
-    transition: right 0.24s cubic-bezier(.2,.8,.2,1), box-shadow 220ms ease;
-    overflow-y: auto;
-  }
-  .menuDrawer.open {
-    right: 0;
-    box-shadow: -12px 0 26px rgba(2, 6, 23, 0.58);
-  }
+  .menuDrawer { width: min(92vw, 320px); right: calc(-1 * min(92vw, 320px)); }
 
   .tableWrap {
     max-height: none;
@@ -627,7 +661,38 @@ th {
   .logsGrid { grid-template-columns: 1fr; }
 }
 
+@media (max-width: 640px) {
+  .wrap { padding: 0 10px; }
+  .card { padding: 10px; border-radius: 12px; }
+  .topbar { padding: 8px; }
+  .topTitle { font-size: 18px; }
+  .tab h3 { font-size: 16px; }
+  .row,
+  .row2 {
+    gap: 6px;
+  }
+  .row > input,
+  .row > select,
+  .row > button {
+    flex: 1 1 100%;
+  }
+  .infoGrid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 420px) {
+  input, select, button, textarea {
+    font-size: 14px;
+  }
+  .menuSection summary {
+    font-size: 11px;
+  }
+  .menu button {
+    font-size: 12px;
+  }
+}
+
 @media (min-width: 981px) {
-  .iconBtn { display: none; }
-  .menuBackdrop { display: none !important; }
+  .menuBackdrop.hidden { display: none !important; }
 }

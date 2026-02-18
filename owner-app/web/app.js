@@ -65,9 +65,7 @@ function setMenuOpen(open) {
 }
 
 function closeMenuOnMobile() {
-  if (window.matchMedia("(max-width: 980px)").matches) {
-    setMenuOpen(false);
-  }
+  setMenuOpen(false);
 }
 
 function stripAnsi(text) {
