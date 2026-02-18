@@ -11,6 +11,10 @@ import {
   getUser,
   getOwnerAuthByUsername,
   setUserBiography,
+  addOwnerAuditLog,
+  listOwnerAuditLogs,
+  listUsers,
+  setUserRole,
   setBan,
   clearBan,
   listBans,
@@ -136,6 +140,21 @@ function applyRateLimit(req, bucket, key = "") {
 function rateLimitExceeded(res, limitResult) {
   res.setHeader("Retry-After", String(limitResult.retryAfterSec || 60));
   return json(res, 429, { ok: false, error: "Zu viele Anfragen. Bitte kurz warten." });
+}
+
+async function auditAdminAction(session, command, targetId = null, payload = null) {
+  if (!session?.chatId) return;
+  try {
+    await addOwnerAuditLog(
+      db,
+      session.chatId,
+      String(command || "admin_action"),
+      targetId,
+      payload ? JSON.stringify(payload) : null
+    );
+  } catch {
+    // ignore audit failures in API responses
+  }
 }
 
 function hashPassword(password, salt) {
@@ -894,7 +913,7 @@ async function getProcessLogs(res, target, lines = 80) {
   });
 }
 
-async function processAction(res, target, action) {
+async function processAction(res, target, action, session = null) {
   const safeAction = String(action || "").toLowerCase();
   const safeTarget = String(target || "").toLowerCase();
 
@@ -911,6 +930,7 @@ async function processAction(res, target, action) {
     }
     await runPm2(["save"]);
     execFile("bash", ["-lc", OWNER_SERVER_REBOOT_CMD], () => {});
+    await auditAdminAction(session, "server_restart", safeTarget, { action: safeAction, cmd: OWNER_SERVER_REBOOT_CMD });
     return json(res, 200, {
       ok: true,
       target: "server",
@@ -939,6 +959,7 @@ async function processAction(res, target, action) {
         ? { ok: true, processName, status: status.data }
         : { ok: false, processName, error: status.error };
     }
+    await auditAdminAction(session, "process_action_all", safeTarget, { action: safeAction, results });
     return json(res, 200, { ok: true, target: "all", action: safeAction, results });
   }
 
@@ -948,6 +969,7 @@ async function processAction(res, target, action) {
   const result = await runPm2([safeAction, processName]);
   if (!result.ok) return json(res, 500, { ok: false, error: result.stderr });
   const status = await getPm2Status(processName);
+  await auditAdminAction(session, "process_action", processName, { target: safeTarget, action: safeAction });
   return json(res, 200, {
     ok: true,
     target: safeTarget,
@@ -1006,6 +1028,40 @@ async function getServerAdminSummary(req, res) {
       app: appStatus.ok ? appStatus.data : { status: "unknown", error: appStatus.error },
     },
   });
+}
+
+async function getAdminAudit(res, limit = 100) {
+  const safeLimit = Math.max(1, Math.min(500, Number(limit || 100)));
+  const rows = await listOwnerAuditLogs(db, safeLimit);
+  return json(res, 200, { ok: true, rows });
+}
+
+async function getAdminUsers(res, limit = 200) {
+  const rows = await listUsers(db);
+  const sliced = (rows || []).slice(0, Math.max(1, Math.min(2000, Number(limit) || 200)));
+  return json(res, 200, {
+    ok: true,
+    rows: sliced.map((u) => ({
+      chat_id: u.chat_id,
+      profile_name: u.profile_name,
+      user_role: u.user_role,
+      level: u.level,
+      xp: u.xp,
+      phn: u.phn,
+    })),
+  });
+}
+
+async function setAdminUserRole(res, chatId, body, session) {
+  const safeChatId = String(chatId || "").trim();
+  const role = String(body?.role || "").trim().toLowerCase();
+  if (!safeChatId) return json(res, 400, { ok: false, error: "chat_id fehlt" });
+  if (!["owner", "admin", "user"].includes(role)) {
+    return json(res, 400, { ok: false, error: "role muss owner|admin|user sein" });
+  }
+  await setUserRole(db, safeChatId, role);
+  await auditAdminAction(session, "set_user_role", safeChatId, { role });
+  return json(res, 200, { ok: true, chat_id: safeChatId, role });
 }
 
 async function listTables(res) {
@@ -1267,6 +1323,28 @@ const server = http.createServer(async (req, res) => {
         return getServerAdminSummary(req, res);
       }
 
+      if (req.method === "GET" && pathname === "/api/admin/audit") {
+        const session = requireAuth(req, res);
+        if (!session) return;
+        const limit = Math.min(500, Math.max(1, Number(url.searchParams.get("limit") || 100)));
+        return getAdminAudit(res, limit);
+      }
+
+      if (req.method === "GET" && pathname === "/api/admin/users") {
+        const session = requireAuth(req, res);
+        if (!session) return;
+        const limit = Math.min(2000, Math.max(1, Number(url.searchParams.get("limit") || 200)));
+        return getAdminUsers(res, limit);
+      }
+
+      if (req.method === "POST" && pathname.startsWith("/api/admin/users/") && pathname.endsWith("/role")) {
+        const session = requireAuth(req, res);
+        if (!session) return;
+        const chatId = decodeURIComponent(pathname.replace("/api/admin/users/", "").replace("/role", ""));
+        const body = await parseBody(req);
+        return setAdminUserRole(res, chatId, body, session);
+      }
+
       if (req.method === "GET" && pathname === "/api/ping") {
         const session = requireAuth(req, res);
         if (!session) return;
@@ -1431,7 +1509,7 @@ const server = http.createServer(async (req, res) => {
         if (!session) return;
         const target = pathname.split("/")[3] || "";
         const body = await parseBody(req);
-        return processAction(res, target, body.action);
+        return processAction(res, target, body.action, session);
       }
 
       return json(res, 404, {

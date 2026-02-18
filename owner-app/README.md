@@ -13,6 +13,11 @@ Owner-Panel mit Login und Admin-Tools.
 - Server- und Bot-Infos anzeigen
 - API-Basisschutz: Rate-Limits auf Login/API + Security-Header
 - Server-Admin-Tab (Bot/App/Alles restart, Logs, IPs, optional Server-Reboot)
+- Erweiterte Admin-API:
+  - `GET /api/admin/summary`
+  - `GET /api/admin/audit`
+  - `GET /api/admin/users`
+  - `POST /api/admin/users/:chat_id/role`
 
 ## Start
 ```bash
