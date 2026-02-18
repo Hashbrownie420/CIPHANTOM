@@ -1,7 +1,7 @@
 let token = null;
 let infoAutoTimer = null;
 let processAutoTimer = null;
-const TABS = ["db", "dbform", "ban", "msg", "broadcast", "outbox", "dbinsight", "dbexport", "botctl", "botcomposer", "botlookup", "appctl", "admin", "profile", "info", "forge"];
+const TABS = ["db", "dbform", "ban", "msg", "broadcast", "outbox", "dbinsight", "dbexport", "botctl", "botcomposer", "botlookup", "botstats", "appctl", "admin", "profile", "info", "forge"];
 let infoLoading = false;
 const processLoading = { bot: false, app: false };
 let lastInfoPayload = "";
@@ -881,6 +881,173 @@ async function loadBotLookup() {
   }
 }
 
+function parseTs(ts) {
+  const v = Date.parse(String(ts || ""));
+  return Number.isFinite(v) ? v : NaN;
+}
+
+function isoWeekBucket(ts) {
+  const d = new Date(ts);
+  const day = (d.getUTCDay() + 6) % 7;
+  d.setUTCDate(d.getUTCDate() - day);
+  d.setUTCHours(0, 0, 0, 0);
+  return d.toISOString().slice(0, 10);
+}
+
+function getAuditChatId(row) {
+  try {
+    const payload = JSON.parse(String(row?.payload || "{}"));
+    return String(payload?.chatId || "").trim();
+  } catch {
+    return "";
+  }
+}
+
+async function loadBotStats() {
+  try {
+    const weeks = Math.max(2, Math.min(24, Number($("botStatsWeeksInput").value || 8)));
+    setMsg("botStatsMsg", "Statistiken werden berechnet...");
+    const [users, knownChats, audit, outbox, bans, errors] = await Promise.all([
+      fetchTableRowsForExport("users", 5000),
+      fetchTableRowsForExport("known_chats", 10000),
+      fetchTableRowsForExport("owner_audit_logs", 20000),
+      fetchTableRowsForExport("owner_outbox", 20000),
+      fetchTableRowsForExport("bans", 5000),
+      fetchTableRowsForExport("error_logs", 5000),
+    ]);
+
+    const now = Date.now();
+    const weekMs = 7 * 24 * 60 * 60 * 1000;
+    const since = now - weeks * weekMs;
+
+    const chats = Array.isArray(knownChats) ? knownChats : [];
+    const groups = chats.filter((c) => Number(c.is_group || 0) === 1).length;
+    const privates = chats.filter((c) => Number(c.is_group || 0) !== 1).length;
+
+    const commands = (Array.isArray(audit) ? audit : []).filter((r) => {
+      const cmd = String(r.command || "");
+      return !/^process_action|set_|job_|admin_op|server_restart|process_action_all/.test(cmd);
+    });
+    const commands7d = commands.filter((r) => {
+      const ts = parseTs(r.created_at);
+      return Number.isFinite(ts) && ts >= now - weekMs;
+    });
+    const commandsToday = commands.filter((r) => {
+      const ts = parseTs(r.created_at);
+      if (!Number.isFinite(ts)) return false;
+      const d = new Date(ts);
+      const n = new Date(now);
+      return d.getUTCFullYear() === n.getUTCFullYear() && d.getUTCMonth() === n.getUTCMonth() && d.getUTCDate() === n.getUTCDate();
+    });
+    const cmdTodayPrivate = commandsToday.filter((r) => {
+      const chatId = getAuditChatId(r);
+      return chatId && !chatId.includes("@g.us");
+    }).length;
+    const cmdTodayGroups = commandsToday.filter((r) => {
+      const chatId = getAuditChatId(r);
+      return chatId.includes("@g.us");
+    }).length;
+    const cmdTodayUnknown = commandsToday.length - cmdTodayPrivate - cmdTodayGroups;
+    const cmdCountMap = {};
+    commands7d.forEach((r) => {
+      const cmd = String(r.command || "unknown");
+      cmdCountMap[cmd] = (cmdCountMap[cmd] || 0) + 1;
+    });
+    const topCmdRows = Object.entries(cmdCountMap)
+      .map(([cmd, count]) => ({ befehl: cmd, aufrufe: count }))
+      .sort((a, b) => b.aufrufe - a.aufrufe)
+      .slice(0, 15);
+
+    const weeklyMap = {};
+    for (const r of commands) {
+      const ts = parseTs(r.created_at);
+      if (!Number.isFinite(ts) || ts < since) continue;
+      const w = isoWeekBucket(ts);
+      if (!weeklyMap[w]) weeklyMap[w] = { woche_start: w, befehle: 0, outbox_sent: 0, outbox_failed: 0, neue_user: 0 };
+      weeklyMap[w].befehle += 1;
+    }
+    const outboxRowsAll = Array.isArray(outbox) ? outbox : [];
+    for (const r of outboxRowsAll) {
+      const ts = parseTs(r.created_at || r.processed_at);
+      if (!Number.isFinite(ts) || ts < since) continue;
+      const w = isoWeekBucket(ts);
+      if (!weeklyMap[w]) weeklyMap[w] = { woche_start: w, befehle: 0, outbox_sent: 0, outbox_failed: 0, neue_user: 0 };
+      const st = String(r.status || "").toLowerCase();
+      if (st === "sent") weeklyMap[w].outbox_sent += 1;
+      if (st === "failed") weeklyMap[w].outbox_failed += 1;
+    }
+    const usersAll = Array.isArray(users) ? users : [];
+    for (const u of usersAll) {
+      const ts = parseTs(u.created_at);
+      if (!Number.isFinite(ts) || ts < since) continue;
+      const w = isoWeekBucket(ts);
+      if (!weeklyMap[w]) weeklyMap[w] = { woche_start: w, befehle: 0, outbox_sent: 0, outbox_failed: 0, neue_user: 0 };
+      weeklyMap[w].neue_user += 1;
+    }
+    const weeklyRows = Object.values(weeklyMap).sort((a, b) => a.woche_start.localeCompare(b.woche_start));
+
+    const usersToday = usersAll.filter((u) => {
+      const ts = parseTs(u.created_at);
+      if (!Number.isFinite(ts)) return false;
+      const d = new Date(ts);
+      const n = new Date(now);
+      return d.getUTCFullYear() === n.getUTCFullYear() && d.getUTCMonth() === n.getUTCMonth() && d.getUTCDate() === n.getUTCDate();
+    }).length;
+    const users7d = usersAll.filter((u) => {
+      const ts = parseTs(u.created_at);
+      return Number.isFinite(ts) && ts >= now - weekMs;
+    }).length;
+    const chats24h = chats.filter((c) => {
+      const ts = parseTs(c.last_seen_at);
+      return Number.isFinite(ts) && ts >= now - 24 * 60 * 60 * 1000;
+    });
+    const groups24h = chats24h.filter((c) => Number(c.is_group || 0) === 1).length;
+    const privates24h = chats24h.length - groups24h;
+    const outbox7d = outboxRowsAll.filter((r) => {
+      const ts = parseTs(r.created_at || r.processed_at);
+      return Number.isFinite(ts) && ts >= now - weekMs;
+    });
+    const outbox7dSent = outbox7d.filter((r) => String(r.status || "").toLowerCase() === "sent").length;
+    const outbox7dFailed = outbox7d.filter((r) => String(r.status || "").toLowerCase() === "failed").length;
+    const avgCommandsPerDay7d = Math.round((commands7d.length / 7) * 10) / 10;
+    const topCmd = topCmdRows[0]?.befehl || "-";
+
+    $("botStatsCardsWrap").innerHTML = `
+      <div class="infoGrid">
+        <div class="infoCard">${kvRow("Registrierte User", usersAll.length)}</div>
+        <div class="infoCard">${kvRow("Bekannte Chats", chats.length)}</div>
+        <div class="infoCard">${kvRow("Privat-Chats", privates)}</div>
+        <div class="infoCard">${kvRow("Gruppen-Chats", groups)}</div>
+        <div class="infoCard">${kvRow("Aktive Bans", (Array.isArray(bans) ? bans : []).length)}</div>
+        <div class="infoCard">${kvRow("Fehler-Logs", (Array.isArray(errors) ? errors : []).length)}</div>
+        <div class="infoCard">${kvRow("Befehle heute", commandsToday.length)}</div>
+        <div class="infoCard">${kvRow("Befehle heute (Privat)", cmdTodayPrivate)}</div>
+        <div class="infoCard">${kvRow("Befehle heute (Gruppe)", cmdTodayGroups)}</div>
+        <div class="infoCard">${kvRow("Befehle heute (Unbekannt)", cmdTodayUnknown)}</div>
+        <div class="infoCard">${kvRow("Befehle (7 Tage)", commands7d.length)}</div>
+        <div class="infoCard">${kvRow("Ø Befehle/Tag (7 Tage)", avgCommandsPerDay7d)}</div>
+        <div class="infoCard">${kvRow("Top-Befehl (7 Tage)", topCmd)}</div>
+        <div class="infoCard">${kvRow("Neuregistrierungen heute", usersToday)}</div>
+        <div class="infoCard">${kvRow("Neuregistrierungen 7 Tage", users7d)}</div>
+        <div class="infoCard">${kvRow("Chats aktiv (24h)", chats24h.length)}</div>
+        <div class="infoCard">${kvRow("Privat aktiv (24h)", privates24h)}</div>
+        <div class="infoCard">${kvRow("Gruppen aktiv (24h)", groups24h)}</div>
+        <div class="infoCard">${kvRow("Outbox gesamt", outboxRowsAll.length)}</div>
+        <div class="infoCard">${kvRow("Outbox sent (7 Tage)", outbox7dSent)}</div>
+        <div class="infoCard">${kvRow("Outbox failed (7 Tage)", outbox7dFailed)}</div>
+      </div>
+    `;
+    $("botStatsTopCmdWrap").innerHTML = renderTable(topCmdRows);
+    $("botStatsWeeklyWrap").innerHTML = renderTable(weeklyRows);
+    setMsg("botStatsMsg", "Bot-Statistiken aktualisiert.", true);
+  } catch (err) {
+    $("botStatsCardsWrap").innerHTML = "";
+    $("botStatsTopCmdWrap").innerHTML = "";
+    $("botStatsWeeklyWrap").innerHTML = "";
+    setMsg("botStatsMsg", err.message || "Statistik konnte nicht geladen werden.");
+  }
+}
+
 function renderProcStatus(data) {
   const s = data?.status || {};
   return `
@@ -1569,6 +1736,7 @@ function bind() {
   $("botTplDeleteBtn").addEventListener("click", deleteBotTemplate);
   $("botTplSendBtn").addEventListener("click", sendBotTemplate);
   $("botLookupRunBtn").addEventListener("click", loadBotLookup);
+  $("botStatsRefreshBtn").addEventListener("click", loadBotStats);
   $("loadOutboxBtn").addEventListener("click", loadOutbox);
   $("dbInsightRefreshBtn").addEventListener("click", loadDbInsights);
   $("dbExportPreviewBtn").addEventListener("click", previewDbExport);
@@ -1666,6 +1834,11 @@ function bind() {
         updateInfoAutoRefresh(false);
         updateProcessAutoRefresh(null);
         await loadBotLookup();
+      }
+      if (tab === "botstats") {
+        updateInfoAutoRefresh(false);
+        updateProcessAutoRefresh(null);
+        await loadBotStats();
       }
       if (tab === "outbox") {
         updateInfoAutoRefresh(false);

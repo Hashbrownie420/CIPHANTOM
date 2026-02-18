@@ -50,6 +50,7 @@
             <div class="menuSub">
               <button data-tab="info">Live-Übersicht</button>
               <button data-tab="admin">Server-Steuerung</button>
+              <button data-tab="botctl">Bot-Steuerung</button>
               <button data-tab="appctl">App-Steuerung</button>
               <button data-tab="forge">Command Forge</button>
             </div>
@@ -69,11 +70,11 @@
           <details class="menuSection">
             <summary>Bot Hub</summary>
             <div class="menuSub">
-              <button data-tab="botctl">Bot-Steuerung</button>
               <button data-tab="msg">Direktnachricht</button>
               <button data-tab="broadcast">Broadcast-Zentrale</button>
               <button data-tab="botcomposer">Template-Studio</button>
               <button data-tab="botlookup">Empfänger-Check</button>
+              <button data-tab="botstats">Bot-Statistiken</button>
             </div>
           </details>
 
@@ -308,6 +309,29 @@
             </section>
             <section class="sectionCard">
               <div id="botLookupHistoryWrap" class="logsBox"></div>
+            </section>
+          </div>
+
+          <div id="tab-botstats" class="tab hidden">
+            <h3>Bot-Statistiken</h3>
+            <p class="tabLead">Übersicht über Chats, Befehlsnutzung und Entwicklung der letzten Wochen.</p>
+            <section class="sectionCard">
+              <div class="row">
+                <input id="botStatsWeeksInput" type="number" min="2" max="24" value="8" placeholder="Anzahl Wochen" />
+                <button id="botStatsRefreshBtn">Statistiken laden</button>
+              </div>
+            </section>
+            <p id="botStatsMsg" class="msg"></p>
+            <section class="sectionCard">
+              <div id="botStatsCardsWrap" class="infoBox"></div>
+            </section>
+            <section class="sectionCard">
+              <h4 class="infoTitle">Top Befehle (7 Tage)</h4>
+              <div id="botStatsTopCmdWrap" class="tableWrap"></div>
+            </section>
+            <section class="sectionCard">
+              <h4 class="infoTitle">Wochen-Entwicklung</h4>
+              <div id="botStatsWeeklyWrap" class="tableWrap"></div>
             </section>
           </div>
 
