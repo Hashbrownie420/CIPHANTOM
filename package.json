@@ -5,7 +5,9 @@
   "type": "module",
   "main": "src/index.js",
   "scripts": {
-    "start": "node src/index.js"
+    "start": "node src/index.js",
+    "deploy:server": "bash scripts/deploy_server.sh",
+    "release:owner-apk": "bash scripts/release_owner_apk.sh"
   },
   "dependencies": {
     "@whiskeysockets/baileys": "^6.7.12",
