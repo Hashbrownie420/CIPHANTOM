@@ -28,7 +28,7 @@
         <div class="brandLine">
           <div class="brandMark" aria-hidden="true">CP</div>
           <div class="topbarText">
-            <h2 class="topTitle">Owner Command Deck</h2>
+            <h2 class="topTitle">Owner Kontrollzentrale</h2>
             <p class="muted">Verwaltung von Bot, App, Datenbank und Server in einer Oberfläche.</p>
           </div>
         </div>
@@ -41,41 +41,41 @@
         <aside id="menuDrawer" class="menu menuDrawer">
           <button id="menuClose" class="iconBtn menuCloseBtn" aria-label="Menü schließen">✕</button>
           <div class="menuHead menuBrand">
-            <strong>Control Deck</strong>
+            <strong>Kontrollzentrale</strong>
             <span>Owner Navigation</span>
           </div>
 
           <details class="menuSection" open>
-            <summary>Control Tower</summary>
+            <summary>Leitzentrale</summary>
             <div class="menuSub">
-              <button data-tab="info">Live Übersicht</button>
-              <button data-tab="admin">Server Commander</button>
-              <button data-tab="botctl">Bot Operator</button>
-              <button data-tab="appctl">App Operator</button>
+              <button data-tab="info">Live-Übersicht</button>
+              <button data-tab="admin">Server-Steuerung</button>
+              <button data-tab="botctl">Bot-Steuerung</button>
+              <button data-tab="appctl">App-Steuerung</button>
             </div>
           </details>
 
           <details class="menuSection" open>
-            <summary>Data Forge</summary>
+            <summary>Datenbereich</summary>
             <div class="menuSub">
-              <button data-tab="db">Daten Explorer</button>
-              <button data-tab="dbform">Daten Editor</button>
-              <button data-tab="outbox">Outbox Queue</button>
+              <button data-tab="db">Daten-Explorer</button>
+              <button data-tab="dbform">Daten-Editor</button>
+              <button data-tab="outbox">Outbox-Warteschlange</button>
             </div>
           </details>
 
           <details class="menuSection">
-            <summary>Comms Desk</summary>
+            <summary>Kommunikation</summary>
             <div class="menuSub">
-              <button data-tab="msg">Direct Message</button>
-              <button data-tab="broadcast">Broadcast Hub</button>
+              <button data-tab="msg">Direktnachricht</button>
+              <button data-tab="broadcast">Broadcast-Zentrale</button>
             </div>
           </details>
 
           <details class="menuSection">
-            <summary>Security</summary>
+            <summary>Sicherheit</summary>
             <div class="menuSub">
-              <button data-tab="ban">Ban Control</button>
+              <button data-tab="ban">Sperrverwaltung</button>
               <button data-tab="profile">Owner Profil</button>
             </div>
           </details>
@@ -87,7 +87,7 @@
 
         <main class="panelArea">
           <div id="tab-db" class="tab hidden">
-            <h3>Daten Explorer</h3>
+            <h3>Daten-Explorer</h3>
             <p class="tabLead">Tabellen filtern, durchsuchen und schnell analysieren.</p>
             <section class="sectionCard">
               <div class="row">
@@ -104,7 +104,7 @@
           </div>
 
           <div id="tab-dbform" class="tab hidden">
-            <h3>Daten Editor</h3>
+            <h3>Daten-Editor</h3>
             <p class="tabLead">Datensätze über Felder lesen, anlegen, aktualisieren oder löschen.</p>
             <section class="sectionCard">
               <div class="row">
@@ -123,7 +123,7 @@
           </div>
 
           <div id="tab-ban" class="tab hidden">
-            <h3>Ban Control</h3>
+            <h3>Sperrverwaltung</h3>
             <p class="tabLead">Nutzer sperren, entsperren und Sperrlisten prüfen.</p>
             <section class="sectionCard">
               <div class="row2">
@@ -133,7 +133,7 @@
               </div>
               <div class="row">
                 <button id="banBtn" class="danger">Bannen</button>
-                <button id="unbanBtn">Unban</button>
+                <button id="unbanBtn">Entsperren</button>
                 <button id="loadBansBtn">Sperrliste laden</button>
               </div>
             </section>
@@ -144,7 +144,7 @@
           </div>
 
           <div id="tab-msg" class="tab hidden">
-            <h3>Direct Message</h3>
+            <h3>Direktnachricht</h3>
             <p class="tabLead">Einzelne Nachricht direkt an eine Zielnummer senden.</p>
             <section class="sectionCard">
               <div class="row2">
@@ -159,7 +159,7 @@
           </div>
 
           <div id="tab-broadcast" class="tab hidden">
-            <h3>Broadcast Hub</h3>
+            <h3>Broadcast-Zentrale</h3>
             <p class="tabLead">Nachricht an User, Gruppen oder beide Zielgruppen senden.</p>
             <section class="sectionCard">
               <div class="row2">
@@ -178,7 +178,7 @@
           </div>
 
           <div id="tab-outbox" class="tab hidden">
-            <h3>Outbox Queue</h3>
+            <h3>Outbox-Warteschlange</h3>
             <p class="tabLead">Versandstatus und Fehler in der Nachrichtenwarteschlange überwachen.</p>
             <section class="sectionCard">
               <div class="row">
@@ -199,13 +199,13 @@
           </div>
 
           <div id="tab-botctl" class="tab hidden">
-            <h3>Bot Operator</h3>
+            <h3>Bot-Steuerung</h3>
             <p class="tabLead">WhatsApp-Bot kontrollieren und Laufzeitstatus live sehen.</p>
             <section class="sectionCard">
               <div class="row">
                 <button id="botStartBtn">Start</button>
-                <button id="botStopBtn" class="danger">Stop</button>
-                <button id="botRestartBtn">Restart</button>
+                <button id="botStopBtn" class="danger">Stopp</button>
+                <button id="botRestartBtn">Neustart</button>
                 <button id="botRefreshBtn">Status/Logs laden</button>
               </div>
             </section>
@@ -219,13 +219,13 @@
           </div>
 
           <div id="tab-appctl" class="tab hidden">
-            <h3>App Operator</h3>
+            <h3>App-Steuerung</h3>
             <p class="tabLead">Owner-App Prozess starten, stoppen, neustarten und Logs prüfen.</p>
             <section class="sectionCard">
               <div class="row">
                 <button id="appStartBtn">Start</button>
-                <button id="appStopBtn" class="danger">Stop</button>
-                <button id="appRestartBtn">Restart</button>
+                <button id="appStopBtn" class="danger">Stopp</button>
+                <button id="appRestartBtn">Neustart</button>
                 <button id="appRefreshBtn">Status/Logs laden</button>
               </div>
             </section>
@@ -239,7 +239,7 @@
           </div>
 
           <div id="tab-admin" class="tab hidden">
-            <h3>Server Commander</h3>
+            <h3>Server-Steuerung</h3>
             <p class="tabLead">Server-Aktionen, Rollen, Jobs, Backups und Audits im Blick.</p>
             <section class="sectionCard">
               <div class="row">
