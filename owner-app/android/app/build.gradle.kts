@@ -15,6 +15,15 @@ val ownerAppUrl = (localProps.getProperty("OWNER_APP_URL") ?: "http://192.168.0.
 val ownerAppFallbackUrl = (localProps.getProperty("OWNER_APP_FALLBACK_URL") ?: "").trim()
 val ownerUpdateUrl = (localProps.getProperty("OWNER_UPDATE_URL") ?: "").trim()
 val ownerApkVersionCode = (localProps.getProperty("OWNER_APK_VERSION_CODE") ?: "1").trim().toIntOrNull()?.coerceAtLeast(1) ?: 1
+val ownerVersionName = (localProps.getProperty("OWNER_APP_VERSION_NAME") ?: "1.0.$ownerApkVersionCode").trim()
+val releaseKeystoreFile = (localProps.getProperty("OWNER_KEYSTORE_FILE") ?: "").trim()
+val releaseKeystorePassword = (localProps.getProperty("OWNER_KEYSTORE_PASSWORD") ?: "").trim()
+val releaseKeyAlias = (localProps.getProperty("OWNER_KEY_ALIAS") ?: "").trim()
+val releaseKeyPassword = (localProps.getProperty("OWNER_KEY_PASSWORD") ?: "").trim()
+val hasReleaseSigning = releaseKeystoreFile.isNotBlank() &&
+    releaseKeystorePassword.isNotBlank() &&
+    releaseKeyAlias.isNotBlank() &&
+    releaseKeyPassword.isNotBlank()
 
 android {
     namespace = "com.cipherphantom.ownerapp"
@@ -25,7 +34,7 @@ android {
         minSdk = 24
         targetSdk = 34
         versionCode = ownerApkVersionCode
-        versionName = "1.${ownerApkVersionCode}"
+        versionName = ownerVersionName
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "OWNER_APP_URL", "\"$ownerAppUrl\"")
@@ -33,9 +42,23 @@ android {
         buildConfigField("String", "OWNER_UPDATE_URL", "\"$ownerUpdateUrl\"")
     }
 
+    signingConfigs {
+        if (hasReleaseSigning) {
+            create("release") {
+                storeFile = file(releaseKeystoreFile)
+                storePassword = releaseKeystorePassword
+                keyAlias = releaseKeyAlias
+                keyPassword = releaseKeyPassword
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
+            if (hasReleaseSigning) {
+                signingConfig = signingConfigs.getByName("release")
+            }
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"

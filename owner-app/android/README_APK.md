@@ -33,6 +33,18 @@ APK liegt danach in:
 
 - `owner-app/android/app/build/outputs/apk/debug/app-debug.apk`
 
+Release (signiert, empfohlen fuer echte Verteilung):
+
+- In `owner-app/android/local.properties` setzen:
+  - `OWNER_KEYSTORE_FILE=/pfad/zu/deinem-keystore.jks`
+  - `OWNER_KEYSTORE_PASSWORD=...`
+  - `OWNER_KEY_ALIAS=...`
+  - `OWNER_KEY_PASSWORD=...`
+- Dann bauen:
+  - `./gradlew assembleRelease`
+- Ausgabe:
+  - `owner-app/android/app/build/outputs/apk/release/app-release.apk`
+
 ## 4) Auf Handy installieren
 
 - APK aufs Handy kopieren und installieren.
@@ -65,7 +77,8 @@ Dein `OWNER_UPDATE_URL` sollte JSON wie folgt liefern:
   "ok": true,
   "latestVersionCode": 3,
   "minVersionCode": 2,
-  "apkDownloadUrl": "https://example.com/app-debug.apk"
+  "apkDownloadUrl": "https://example.com/app-debug.apk",
+  "apkSha256": "64-hex-zeichen"
 }
 ```
 
@@ -74,5 +87,6 @@ Dein `OWNER_UPDATE_URL` sollte JSON wie folgt liefern:
 
 Hinweis:
 - Die API `/api/app-meta` im Owner-Server liest `OWNER_APK_VERSION_CODE` und `OWNER_APK_DOWNLOAD_URL` aus `local.properties`.
+- Die API liefert zusaetzlich `apkSha256` und `apkSizeBytes` fuer Integritaetspruefung.
 - `start_remote.sh` erhöht `OWNER_APK_VERSION_CODE` automatisch, wenn sich die Tunnel-URL ändert.
 - Download-Link in der App: `/downloads/latest.apk` (vom Owner-Server ausgeliefert).

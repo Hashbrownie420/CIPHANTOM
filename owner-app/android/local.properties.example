@@ -9,5 +9,13 @@ OWNER_APP_FALLBACK_URL=http://DEINE_LAPTOP_IP:8787
 OWNER_UPDATE_URL=https://DEIN-STABILER-ENDPOINT/api/app-meta
 # Build/Update Version (wird von start_remote.sh automatisch erhöht, wenn sich Tunnel-URL ändert)
 OWNER_APK_VERSION_CODE=1
+# Sichtbare Versionsnummer (optional), z. B. 1.2.3
+OWNER_APP_VERSION_NAME=1.0.1
 # Download-URL für In-App-Update
 OWNER_APK_DOWNLOAD_URL=https://DEIN-STABILER-ENDPOINT/downloads/latest.apk
+
+# Optional für signierte Release-APK (Punkt 2)
+# OWNER_KEYSTORE_FILE=/pfad/zu/deinem-keystore.jks
+# OWNER_KEYSTORE_PASSWORD=*****
+# OWNER_KEY_ALIAS=dein_alias
+# OWNER_KEY_PASSWORD=*****

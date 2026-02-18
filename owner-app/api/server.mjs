@@ -191,6 +191,24 @@ function getMetaUpdatedAt() {
   return null;
 }
 
+function resolveApkFilePath(props = {}) {
+  const candidate = String(props.OWNER_APK_FILE || "").trim();
+  return candidate || process.env.OWNER_APK_FILE || DEFAULT_APK_FILE;
+}
+
+function getApkIntegrityMeta(apkFile) {
+  try {
+    if (!fs.existsSync(apkFile) || fs.statSync(apkFile).isDirectory()) {
+      return { apkSha256: null, apkSizeBytes: null };
+    }
+    const buf = fs.readFileSync(apkFile);
+    const apkSha256 = crypto.createHash("sha256").update(buf).digest("hex");
+    return { apkSha256, apkSizeBytes: buf.length };
+  } catch {
+    return { apkSha256: null, apkSizeBytes: null };
+  }
+}
+
 function sendStatic(req, res) {
   const full = safeFilePath(new URL(req.url, "http://localhost").pathname);
   if (!full) return json(res, 400, { ok: false, error: "Bad path" });
@@ -780,6 +798,8 @@ const server = http.createServer(async (req, res) => {
 
       if (req.method === "GET" && pathname === "/api/app-meta") {
         const props = readLocalProps();
+        const apkFile = resolveApkFilePath(props);
+        const integrity = getApkIntegrityMeta(apkFile);
         const panelVersion = getOwnerPanelVersion();
         const metaUpdatedAt = getMetaUpdatedAt();
         const latestFromProps = Number(props.OWNER_APK_VERSION_CODE || 0);
@@ -801,6 +821,8 @@ const server = http.createServer(async (req, res) => {
           latestVersionCode,
           minVersionCode,
           apkDownloadUrl,
+          apkSha256: integrity.apkSha256,
+          apkSizeBytes: integrity.apkSizeBytes,
           serverUrl: `http://${HOST}:${PORT}`,
           ts: metaUpdatedAt,
         });
@@ -960,8 +982,7 @@ const server = http.createServer(async (req, res) => {
 
     if (req.method === "GET" && pathname === "/downloads/latest.apk") {
       const props = readLocalProps();
-      const candidate = String(props.OWNER_APK_FILE || "").trim();
-      const apkFile = candidate || process.env.OWNER_APK_FILE || DEFAULT_APK_FILE;
+      const apkFile = resolveApkFilePath(props);
       return sendApk(res, apkFile);
     }
 

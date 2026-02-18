@@ -18,12 +18,23 @@ import android.widget.Button
 import android.widget.ProgressBar
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.FileProvider
 import org.json.JSONObject
+import java.io.File
+import java.io.FileOutputStream
 import java.net.HttpURLConnection
 import java.net.URI
 import java.net.URL
+import java.security.MessageDigest
 
 class MainActivity : AppCompatActivity() {
+    data class UpdateCheckResult(
+        val hasUpdate: Boolean,
+        val required: Boolean,
+        val apkUrl: String?,
+        val apkSha256: String?,
+        val source: String?
+    )
 
     private lateinit var webView: WebView
     private lateinit var loading: ProgressBar
@@ -212,7 +223,12 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun checkUpdateAny(baseUrls: List<String>): Triple<Boolean, String?, String?> {
+    private fun normalizeSha256(raw: String?): String? {
+        val value = String(raw ?: "").trim().lowercase().replace(Regex("[^a-f0-9]"), "")
+        return if (value.length == 64) value else null
+    }
+
+    private fun checkUpdateAny(baseUrls: List<String>): UpdateCheckResult {
         val updateDirect = normalizeBaseUrl(BuildConfig.OWNER_UPDATE_URL)
         val updateEndpoints = mutableListOf<String>()
         if (updateDirect.isNotBlank()) {
@@ -233,15 +249,24 @@ class MainActivity : AppCompatActivity() {
                 val minVersion = j.optInt("minVersionCode", 1)
                 val latestVersion = j.optInt("latestVersionCode", minVersion)
                 val apkUrl = j.optString("apkDownloadUrl", "")
-                if (minVersion > BuildConfig.VERSION_CODE || latestVersion > BuildConfig.VERSION_CODE) {
-                    return Triple(true, if (apkUrl.isBlank()) null else apkUrl, ep)
+                val apkSha256 = normalizeSha256(j.optString("apkSha256", ""))
+                val required = minVersion > BuildConfig.VERSION_CODE
+                val hasUpdate = required || latestVersion > BuildConfig.VERSION_CODE
+                if (hasUpdate) {
+                    return UpdateCheckResult(
+                        hasUpdate = true,
+                        required = required,
+                        apkUrl = if (apkUrl.isBlank()) null else apkUrl,
+                        apkSha256 = apkSha256,
+                        source = ep
+                    )
                 }
-                return Triple(false, null, ep)
+                return UpdateCheckResult(false, false, null, null, ep)
             } catch (_: Exception) {
                 // try next endpoint
             }
         }
-        return Triple(false, null, null)
+        return UpdateCheckResult(false, false, null, null, null)
     }
 
     private fun resolveWorkingBase(baseUrls: List<String>): String? {
@@ -281,9 +306,9 @@ class MainActivity : AppCompatActivity() {
 
             // check update endpoints only on configured URLs to avoid long scans
             val update = checkUpdateAny(configured.ifEmpty { bases.take(3) })
-            if (update.first) {
+            if (update.hasUpdate) {
                 runOnUiThread {
-                    showUpdateRequired(update.second)
+                    showUpdateRequired(update.apkUrl, update.apkSha256)
                 }
                 return@Thread
             }
@@ -308,7 +333,78 @@ class MainActivity : AppCompatActivity() {
         }.start()
     }
 
-    private fun showUpdateRequired(apkUrl: String?) {
+    private fun sha256OfFile(file: File): String {
+        val md = MessageDigest.getInstance("SHA-256")
+        file.inputStream().use { input ->
+            val buffer = ByteArray(8192)
+            while (true) {
+                val read = input.read(buffer)
+                if (read <= 0) break
+                md.update(buffer, 0, read)
+            }
+        }
+        return md.digest().joinToString("") { "%02x".format(it) }
+    }
+
+    private fun downloadToFile(url: String, outFile: File) {
+        val conn = (URL(url).openConnection() as HttpURLConnection).apply {
+            connectTimeout = 8000
+            readTimeout = 30000
+            requestMethod = "GET"
+        }
+        try {
+            val code = conn.responseCode
+            if (code !in 200..299) throw IllegalStateException("Download HTTP $code")
+            conn.inputStream.use { input ->
+                FileOutputStream(outFile).use { output ->
+                    input.copyTo(output)
+                }
+            }
+        } finally {
+            conn.disconnect()
+        }
+    }
+
+    private fun startSecureUpdate(apkUrl: String, expectedSha256: String?) {
+        loading.visibility = View.VISIBLE
+        retryBtn.isEnabled = false
+        Thread {
+            try {
+                val apkFile = File(cacheDir, "owner-update.apk")
+                downloadToFile(apkUrl, apkFile)
+                val expected = normalizeSha256(expectedSha256)
+                if (!expected.isNullOrBlank()) {
+                    val actual = sha256OfFile(apkFile)
+                    if (actual != expected) {
+                        throw IllegalStateException("Integritätsprüfung fehlgeschlagen")
+                    }
+                }
+                val apkUri = FileProvider.getUriForFile(
+                    this,
+                    "${BuildConfig.APPLICATION_ID}.fileprovider",
+                    apkFile
+                )
+                runOnUiThread {
+                    loading.visibility = View.GONE
+                    retryBtn.isEnabled = true
+                    val intent = Intent(Intent.ACTION_VIEW).apply {
+                        setDataAndType(apkUri, "application/vnd.android.package-archive")
+                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    }
+                    startActivity(intent)
+                }
+            } catch (err: Exception) {
+                runOnUiThread {
+                    retryBtn.isEnabled = true
+                    loading.visibility = View.GONE
+                    showError("Update fehlgeschlagen: ${err.message ?: "unbekannter Fehler"}")
+                }
+            }
+        }.start()
+    }
+
+    private fun showUpdateRequired(apkUrl: String?, apkSha256: String?) {
         clearBootTimeout()
         loading.visibility = View.GONE
         webView.visibility = View.GONE
@@ -318,7 +414,7 @@ class MainActivity : AppCompatActivity() {
         if (!apkUrl.isNullOrBlank()) {
             retryBtn.text = getString(R.string.btn_open_update)
             retryBtn.setOnClickListener {
-                startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(apkUrl)))
+                startSecureUpdate(apkUrl, apkSha256)
             }
         } else {
             retryBtn.text = getString(R.string.btn_retry)
