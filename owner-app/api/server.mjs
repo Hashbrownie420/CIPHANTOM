@@ -81,6 +81,9 @@ const PROCESS_MAP = {
 };
 const OWNER_ALLOW_SERVER_REBOOT = String(process.env.OWNER_ALLOW_SERVER_REBOOT || "0") === "1";
 const OWNER_SERVER_REBOOT_CMD = String(process.env.OWNER_SERVER_REBOOT_CMD || "sudo /sbin/shutdown -r +1");
+const OWNER_TRUST_PROXY = String(process.env.OWNER_TRUST_PROXY || "1") === "1";
+const OWNER_MAX_USERNAME_LEN = 64;
+const OWNER_MAX_PASSWORD_LEN = 256;
 
 const db = await initDb();
 const rateLimitState = new Map();
@@ -170,10 +173,34 @@ function json(res, status, payload) {
   res.end(body);
 }
 
+function jsonHead(res, status, payload) {
+  const body = JSON.stringify(payload);
+  res.writeHead(status, {
+    "Content-Type": "application/json; charset=utf-8",
+    "Content-Length": Buffer.byteLength(body),
+    "Cache-Control": "no-store",
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "Referrer-Policy": "no-referrer",
+    "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+  });
+  res.end();
+}
+
 function getClientIp(req) {
+  const socketIp = String(req.socket?.remoteAddress || "unknown")
+    .replace(/^::ffff:/, "")
+    .trim();
+  if (!OWNER_TRUST_PROXY) return socketIp;
   const fwd = String(req.headers["x-forwarded-for"] || "").trim();
-  if (fwd) return fwd.split(",")[0].trim();
-  return String(req.socket?.remoteAddress || "unknown");
+  if (!fwd) return socketIp;
+  const list = fwd
+    .split(",")
+    .map((v) => v.trim().replace(/^::ffff:/, ""))
+    .filter(Boolean);
+  if (!list.length) return socketIp;
+  // With nginx "proxy_add_x_forwarded_for", the right-most IP is the direct client.
+  return list[list.length - 1];
 }
 
 function applyRateLimit(req, bucket, key = "") {
@@ -242,13 +269,20 @@ function parseBody(req) {
 }
 
 function getTokenFromReq(req) {
+  const normalizeSessionToken = (raw) => {
+    const token = String(raw || "").trim();
+    return /^[a-f0-9]{64}$/i.test(token) ? token : "";
+  };
   const raw = req.headers.authorization || "";
   const parts = raw.split(" ");
-  if (parts.length === 2 && /^Bearer$/i.test(parts[0])) return parts[1];
+  if (parts.length === 2 && /^Bearer$/i.test(parts[0])) {
+    const token = normalizeSessionToken(parts[1]);
+    if (token) return token;
+  }
   if (!OWNER_ALLOW_QUERY_TOKEN) return null;
   try {
     const url = new URL(req.url || "/", `http://${req.headers.host || "localhost"}`);
-    const q = String(url.searchParams.get("token") || "").trim();
+    const q = normalizeSessionToken(url.searchParams.get("token") || "");
     if (q) return q;
   } catch {
     // ignore
@@ -1106,12 +1140,20 @@ async function login(res, body) {
   if (!username || !password) {
     return json(res, 400, { ok: false, error: "Username und Passwort erforderlich" });
   }
+  if (username.length > OWNER_MAX_USERNAME_LEN || password.length > OWNER_MAX_PASSWORD_LEN) {
+    return json(res, 400, { ok: false, error: "Login-Daten sind ungültig" });
+  }
   const row = await getOwnerAuthByUsername(db, username);
   if (!row || !OWNER_IDS.has(row.chat_id)) {
     return json(res, 401, { ok: false, error: "Ungültige Login-Daten" });
   }
   const inputHash = hashPassword(password, row.password_salt);
-  const ok = crypto.timingSafeEqual(Buffer.from(inputHash, "hex"), Buffer.from(row.password_hash, "hex"));
+  const inputBuf = Buffer.from(inputHash, "hex");
+  const storedBuf = Buffer.from(String(row.password_hash || ""), "hex");
+  if (inputBuf.length !== storedBuf.length) {
+    return json(res, 401, { ok: false, error: "Ungültige Login-Daten" });
+  }
+  const ok = crypto.timingSafeEqual(inputBuf, storedBuf);
   if (!ok) {
     return json(res, 401, { ok: false, error: "Ungültige Login-Daten" });
   }
@@ -1963,12 +2005,13 @@ const server = http.createServer(async (req, res) => {
 
     if (pathname.startsWith("/api/")) {
       // Public endpoints for bootstrap/update-check (no login required)
-      if (req.method === "GET" && pathname === "/api/healthz") {
+      if ((req.method === "GET" || req.method === "HEAD") && pathname === "/api/healthz") {
         const health = await collectHealthSnapshot();
+        if (req.method === "HEAD") return jsonHead(res, health.ok ? 200 : 503, health);
         return json(res, health.ok ? 200 : 503, health);
       }
 
-      if (req.method === "GET" && pathname === "/api/app-meta") {
+      if ((req.method === "GET" || req.method === "HEAD") && pathname === "/api/app-meta") {
         const props = readLocalProps();
         const apkFile = resolveApkFilePath(props);
         const integrity = getApkIntegrityMeta(apkFile);
@@ -1990,7 +2033,7 @@ const server = http.createServer(async (req, res) => {
           null;
         const serverUrl = publicBaseUrl || `http://${HOST}:${PORT}`;
 
-        return json(res, 200, {
+        const payload = {
           ok: true,
           panelVersion,
           latestVersionCode,
@@ -2000,13 +2043,19 @@ const server = http.createServer(async (req, res) => {
           apkSizeBytes: integrity.apkSizeBytes,
           serverUrl,
           ts: metaUpdatedAt,
-        });
+        };
+        if (req.method === "HEAD") return jsonHead(res, 200, payload);
+        return json(res, 200, payload);
       }
 
       if (req.method === "POST" && pathname === "/api/login") {
-        const limited = applyRateLimit(req, "login");
-        if (limited.limited) return rateLimitExceeded(res, limited);
         const body = await parseBody(req);
+        const loginKey = String(body?.username || "")
+          .trim()
+          .toLowerCase()
+          .slice(0, OWNER_MAX_USERNAME_LEN);
+        const limited = applyRateLimit(req, "login", loginKey || "unknown");
+        if (limited.limited) return rateLimitExceeded(res, limited);
         return login(res, body);
       }
 
@@ -2310,7 +2359,12 @@ const server = http.createServer(async (req, res) => {
 
     return sendStatic(req, res);
   } catch (err) {
-    return json(res, 500, { ok: false, error: err.message || "Server error" });
+    const msg = String(err?.message || "");
+    if (msg === "Invalid JSON") return json(res, 400, { ok: false, error: "Ungültiges JSON" });
+    if (msg === "Request body too large") return json(res, 413, { ok: false, error: "Request Body zu groß" });
+    const errorId = crypto.randomBytes(4).toString("hex");
+    console.error(`[owner-app] unhandled_error id=${errorId}`, err);
+    return json(res, 500, { ok: false, error: "Interner Serverfehler", id: errorId });
   }
 });
 
