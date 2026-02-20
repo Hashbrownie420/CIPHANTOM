@@ -1,0 +1,35 @@
+services:
+  owner-app:
+    build:
+      context: .
+      dockerfile: owner-app/Dockerfile
+    container_name: cipherphantom-owner-app
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      OWNER_APP_HOST: 0.0.0.0
+      OWNER_APP_PORT: "8787"
+      OWNER_SESSION_TTL_HOURS: "12"
+      OWNER_ALLOW_SERVER_REBOOT: "0"
+      OWNER_APK_DOWNLOAD_URL: "http://130.61.157.46/downloads/latest.apk"
+      OWNER_UPDATE_URL: "http://130.61.157.46/api/app-meta"
+    ports:
+      - "127.0.0.1:8787:8787"
+    volumes:
+      - ./data:/app/data
+      - ./owner-app/android:/app/owner-app/android:ro
+
+  bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: cipherphantom-bot
+    restart: unless-stopped
+    depends_on:
+      - owner-app
+    environment:
+      NODE_ENV: production
+      OWNER_APK_AUTOBUILD: "0"
+    volumes:
+      - ./data:/app/data
+      - ./auth:/app/auth

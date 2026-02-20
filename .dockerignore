@@ -1,0 +1,10 @@
+.git
+.gitignore
+node_modules
+owner-app/node_modules
+owner-app/android/.gradle
+owner-app/android/build
+owner-app/android/app/build
+data
+auth
+npm-debug.log*

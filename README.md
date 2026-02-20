@@ -40,3 +40,27 @@ Standard-Prefix: `-`
 - `-prefix <neues_prefix>` (pro Chat)
 
 Beispiel: `-prefix !` setzt den Prefix nur fuer den aktuellen Chat auf `!`.
+
+## Docker/Compose (Server)
+
+Voraussetzung: Docker + Compose Plugin installiert.
+
+```bash
+# im Repo
+docker compose build
+docker compose up -d
+docker compose ps
+```
+
+Logs:
+
+```bash
+docker compose logs -f owner-app
+docker compose logs -f bot
+```
+
+Hinweise:
+
+- App wird nur lokal auf `127.0.0.1:8787` veröffentlicht (für Nginx Reverse Proxy).
+- Persistente Daten liegen außerhalb der Container in `./data` und `./auth`.
+- `OWNER_APK_AUTOBUILD` ist im Bot-Container standardmäßig deaktiviert.
