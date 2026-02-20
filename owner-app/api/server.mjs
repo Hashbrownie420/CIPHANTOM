@@ -63,8 +63,8 @@ const OWNER_PUBLIC_BASE_URL = String(process.env.OWNER_PUBLIC_BASE_URL || "").tr
 const OWNER_ALLOW_QUERY_TOKEN = String(process.env.OWNER_ALLOW_QUERY_TOKEN || "0") === "1";
 const PM2_UNAVAILABLE_CODES = new Set(["ENOENT", "PM2_UNAVAILABLE"]);
 const DOCKER_PROCESS_MAP = {
-  bot: ["cipherphantom-bot"],
-  app: ["cipherphantom-owner-app"],
+  bot: ["cipherphantom-bot", "bot"],
+  app: ["cipherphantom-owner-app", "owner-app"],
   all: ["cipherphantom-bot", "cipherphantom-owner-app"],
 };
 
@@ -858,6 +858,23 @@ async function resolveRunningDockerName(target) {
   for (const name of candidates) {
     const res = await runDocker(["inspect", name, "--format", "{{.Name}}"]);
     if (res.ok) return { ok: true, code: null, containerName: name };
+  }
+  // Fallback: discover by compose service label (works across varying container names)
+  const service = String(target || "").toLowerCase() === "app" ? "owner-app" : "bot";
+  const byLabel = await runDocker([
+    "ps",
+    "-a",
+    "--filter",
+    `label=com.docker.compose.service=${service}`,
+    "--format",
+    "{{.Names}}",
+  ]);
+  if (byLabel.ok) {
+    const first = String(byLabel.stdout || "")
+      .split(/\r?\n/)
+      .map((s) => s.trim())
+      .find(Boolean);
+    if (first) return { ok: true, code: null, containerName: first };
   }
   return { ok: false, code: "DOCKER_CONTAINER_NOT_FOUND", error: "Container nicht gefunden" };
 }
