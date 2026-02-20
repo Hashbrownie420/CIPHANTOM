@@ -249,14 +249,17 @@ function hashPassword(password, salt) {
 function parseBody(req) {
   return new Promise((resolve, reject) => {
     let data = "";
+    let tooLarge = false;
     req.on("data", (chunk) => {
+      if (tooLarge) return;
       data += chunk;
       if (data.length > 1_000_000) {
-        reject(new Error("Request body too large"));
-        req.destroy();
+        tooLarge = true;
+        data = "";
       }
     });
     req.on("end", () => {
+      if (tooLarge) return reject(new Error("Request body too large"));
       if (!data) return resolve({});
       try {
         resolve(JSON.parse(data));
