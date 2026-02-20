@@ -1060,6 +1060,8 @@ async function runStartupSelftest(db) {
 
 const OWNER_AUDIT_COMMANDS = new Set([
   "chatid",
+  "ownerlogin",
+  "ownercred",
   "ownerpass",
   "syncroles",
   "dbdump",
@@ -2537,6 +2539,7 @@ async function start() {
               "🛡️ OWNER KONSOLE",
               "  ├─ 🛰️ Bot Core",
               `  │  • ${prefix}chatid  • Chat-ID`,
+              `  │  • ${prefix}ownerlogin <name> | <passwort>  • App-Login komplett`,
               `  │  • ${prefix}ownerpass <passwort>  • App-Login`,
               `  │  • ${prefix}syncroles  • Rollen sync`,
               `  │  • ${prefix}dbdump  • DB Export`,
@@ -5222,6 +5225,54 @@ async function start() {
           m,
           "Owner Passwort gespeichert",
           ["Login fuer Owner-App ist jetzt aktiv."],
+          "",
+          "✅",
+        );
+        break;
+      }
+
+      case "ownerlogin":
+      case "ownercred": {
+        // Owner: Loginname + Passwort fuer Owner-App setzen
+        if (!isOwner(senderId)) {
+          await sendText(sock, chatId, m, "Kein Zugriff", ["Owner only."], "", "🚫");
+          break;
+        }
+
+        const rawInput = args.join(" ").trim();
+        const parts = rawInput.includes("|")
+          ? rawInput.split("|").map((p) => p.trim())
+          : rawInput.split(/\s+/);
+        const nextName = (parts[0] || "").trim();
+        const nextPass = parts.slice(1).join(rawInput.includes("|") ? "|" : " ").trim();
+
+        if (!nextName || !nextPass || nextName.length > 30 || nextPass.length < 8) {
+          await sendText(
+            sock,
+            chatId,
+            m,
+            "Usage",
+            [
+              `${prefix}ownerlogin <name> | <passwort>`,
+              `Alias: ${prefix}ownercred <name> | <passwort>`,
+              "Name max. 30 Zeichen, Passwort mind. 8 Zeichen.",
+            ],
+            "",
+            "🔐",
+          );
+          break;
+        }
+
+        const { hash, salt } = hashOwnerPassword(nextPass);
+        await setProfileName(db, senderId, nextName);
+        await upsertOwnerPasswordHash(db, senderId, hash, salt);
+
+        await sendText(
+          sock,
+          chatId,
+          m,
+          "Owner Login aktualisiert",
+          [`Name: ${nextName}`, "Passwort wurde sicher gespeichert."],
           "",
           "✅",
         );

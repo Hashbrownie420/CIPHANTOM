@@ -437,6 +437,8 @@ async function seedCommandHelp(db) {
     ["appstop", "appstop", "Owner-App stoppen", "Owner only", 1],
     ["apprestart", "apprestart", "Owner-App neustarten", "Owner only", 1],
     ["applogs", "applogs [zeilen]", "Owner-App Logs exportieren", "Owner only", 1],
+    ["ownerlogin", "ownerlogin <name> | <passwort>", "Owner-Login Name+Passwort setzen", "Owner only", 1],
+    ["ownercred", "ownercred <name> | <passwort>", "Alias von ownerlogin", "Owner only", 1],
     ["ownerpass", "ownerpass <neues_passwort>", "Owner-Login Passwort setzen", "Owner only", 1],
     ["helpadd", "helpadd <cmd> | <usage> | <nutzen> | [tipps] | [owner_only]", "Hilfeeintrag anlegen", "Owner only", 1],
     ["helpedit", "helpedit <cmd> | <usage> | <nutzen> | [tipps] | [owner_only]", "Hilfeeintrag aendern", "Owner only", 1],
