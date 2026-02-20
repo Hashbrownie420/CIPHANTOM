@@ -64,3 +64,4 @@ Hinweise:
 - App wird nur lokal auf `127.0.0.1:8787` veröffentlicht (für Nginx Reverse Proxy).
 - Persistente Daten liegen außerhalb der Container in `./data` und `./auth`.
 - `OWNER_APK_AUTOBUILD` ist im Bot-Container standardmäßig deaktiviert.
+
