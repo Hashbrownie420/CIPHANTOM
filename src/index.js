@@ -113,7 +113,12 @@ const CURRENCY = "PHN";
 const CURRENCY_NAME = "Phantoms";
 const DSGVO_VERSION = "2026-02-09";
 const pendingDeletes = new Map();
-const OWNER_IDS = new Set(["72271934840903@lid"]);
+const OWNER_IDS = new Set(
+  String(process.env.OWNER_IDS || "72271934840903@lid")
+    .split(",")
+    .map((v) => v.trim())
+    .filter(Boolean)
+);
 const pendingNameChanges = new Map();
 const pendingPurchases = new Map();
 const GAME_DAILY_PROFIT_CAP = Number.POSITIVE_INFINITY;

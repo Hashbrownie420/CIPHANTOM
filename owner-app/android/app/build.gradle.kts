@@ -11,7 +11,9 @@ val localProps = Properties().apply {
         f.inputStream().use { load(it) }
     }
 }
-val ownerAppUrl = (localProps.getProperty("OWNER_APP_URL") ?: "http://192.168.0.100:8787").trim()
+fun String.toBuildConfigString(): String = "\"${this.replace("\\", "\\\\").replace("\"", "\\\"")}\""
+
+val ownerAppUrl = (localProps.getProperty("OWNER_APP_URL") ?: "").trim()
 val ownerAppFallbackUrl = (localProps.getProperty("OWNER_APP_FALLBACK_URL") ?: "").trim()
 val ownerUpdateUrl = (localProps.getProperty("OWNER_UPDATE_URL") ?: "").trim()
 val ownerApkVersionCode = (localProps.getProperty("OWNER_APK_VERSION_CODE") ?: "1").trim().toIntOrNull()?.coerceAtLeast(1) ?: 1
@@ -37,9 +39,9 @@ android {
         versionName = ownerVersionName
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        buildConfigField("String", "OWNER_APP_URL", "\"$ownerAppUrl\"")
-        buildConfigField("String", "OWNER_APP_FALLBACK_URL", "\"$ownerAppFallbackUrl\"")
-        buildConfigField("String", "OWNER_UPDATE_URL", "\"$ownerUpdateUrl\"")
+        buildConfigField("String", "OWNER_APP_URL", ownerAppUrl.toBuildConfigString())
+        buildConfigField("String", "OWNER_APP_FALLBACK_URL", ownerAppFallbackUrl.toBuildConfigString())
+        buildConfigField("String", "OWNER_UPDATE_URL", ownerUpdateUrl.toBuildConfigString())
     }
 
     signingConfigs {

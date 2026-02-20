@@ -5,11 +5,20 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ANDROID_DIR="${ROOT_DIR}/owner-app/android"
 APK_LOCAL="${ANDROID_DIR}/app/build/outputs/apk/debug/app-debug.apk"
 
-SERVER_USER="${SERVER_USER:-ubuntu}"
-SERVER_HOST="${SERVER_HOST:-130.61.157.46}"
+SERVER_USER="${SERVER_USER:-owner}"
+SERVER_HOST="${SERVER_HOST:-}"
 SERVER_SSH="${SERVER_USER}@${SERVER_HOST}"
 REMOTE_DIR="${REMOTE_DIR:-~/CIPHERPHANTOM}"
-SERVER_BASE_URL="${SERVER_BASE_URL:-http://${SERVER_HOST}:8787}"
+SERVER_BASE_URL="${SERVER_BASE_URL:-}"
+
+if [[ -z "${SERVER_HOST}" ]]; then
+  echo "[release] SERVER_HOST ist leer. Beispiel: SERVER_HOST=dein-server.tld npm run release:owner-apk" >&2
+  exit 1
+fi
+
+if [[ -z "${SERVER_BASE_URL}" ]]; then
+  SERVER_BASE_URL="http://${SERVER_HOST}"
+fi
 
 echo "[release] building local APK"
 cd "${ANDROID_DIR}"

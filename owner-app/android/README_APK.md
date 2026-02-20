@@ -15,10 +15,10 @@ Du kannst diesen Ordner direkt in Android Studio öffnen:
 ## 2) URL auf Laptop setzen
 
 - Datei `local.properties` im Ordner `owner-app/android` öffnen.
-- Diese Zeile eintragen (mit deiner Laptop-IP):
-  - `OWNER_APP_URL=http://10.17.86.221:8787`
+- Diese Zeile eintragen (mit deiner Laptop-/Server-URL):
+  - `OWNER_APP_URL=http://DEINE-URL`
 - Optional (robuster bei URL-Problemen):
-  - `OWNER_APP_FALLBACK_URL=http://10.17.86.221:8787`
+  - `OWNER_APP_FALLBACK_URL=http://DEINE-URL`
   - `OWNER_UPDATE_URL=https://DEIN-STABILER-ENDPOINT/api/app-meta`
 
 Hinweis: Falls `local.properties` noch nicht existiert, Android Studio erzeugt sie beim ersten Öffnen. Du kannst dann `OWNER_APP_URL` ergänzen.
@@ -33,7 +33,7 @@ APK liegt danach in:
 
 - `owner-app/android/app/build/outputs/apk/debug/app-debug.apk`
 
-Release (signiert, empfohlen fuer echte Verteilung):
+Release (signiert, empfohlen für echte Verteilung):
 
 - In `owner-app/android/local.properties` setzen:
   - `OWNER_KEYSTORE_FILE=/pfad/zu/deinem-keystore.jks`
@@ -57,14 +57,14 @@ Release (signiert, empfohlen fuer echte Verteilung):
 
 ## Wenn nur schwarzer Bildschirm
 
-- Die App zeigt jetzt eine Fehlerseite mit URL + Fehlertext, wenn keine Verbindung moeglich ist.
-- Die App prueft beim Start zuerst auf Pflicht-Updates (`minVersionCode`) und danach auf einen erreichbaren Server.
-- Reihenfolge fuer Verbindungscheck:
+- Die App zeigt jetzt eine Fehlerseite mit URL + Fehlertext, wenn keine Verbindung möglich ist.
+- Die App prüft beim Start zuerst auf Pflicht-Updates (`minVersionCode`) und danach auf einen erreichbaren Server.
+- Reihenfolge für Verbindungscheck:
   - zuletzt funktionierende URL (gespeichert in der App)
   - `OWNER_APP_URL`
   - `OWNER_APP_FALLBACK_URL` (falls gesetzt)
-- Pruefe:
-  - Owner-Server laeuft: `OWNER_APP_HOST=0.0.0.0 OWNER_APP_PORT=8787 npm start`
+- Prüfe:
+  - Owner-Server läuft: `OWNER_APP_HOST=0.0.0.0 OWNER_APP_PORT=8787 npm start`
   - Handy und Laptop sind im selben WLAN
   - `OWNER_APP_URL` in `owner-app/android/local.properties` ist korrekt
 
@@ -87,6 +87,6 @@ Dein `OWNER_UPDATE_URL` sollte JSON wie folgt liefern:
 
 Hinweis:
 - Die API `/api/app-meta` im Owner-Server liest `OWNER_APK_VERSION_CODE` und `OWNER_APK_DOWNLOAD_URL` aus `local.properties`.
-- Die API liefert zusaetzlich `apkSha256` und `apkSizeBytes` fuer Integritaetspruefung.
+- Die API liefert zusätzlich `apkSha256` und `apkSizeBytes` für Integritätsprüfung.
 - `start_remote.sh` erhöht `OWNER_APK_VERSION_CODE` automatisch, wenn sich die Tunnel-URL ändert.
 - Download-Link in der App: `/downloads/latest.apk` (vom Owner-Server ausgeliefert).

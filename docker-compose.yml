@@ -11,8 +11,11 @@ services:
       OWNER_APP_PORT: "8787"
       OWNER_SESSION_TTL_HOURS: "12"
       OWNER_ALLOW_SERVER_REBOOT: "0"
-      OWNER_APK_DOWNLOAD_URL: "http://130.61.157.46/downloads/latest.apk"
-      OWNER_UPDATE_URL: "http://130.61.157.46/api/app-meta"
+      OWNER_IDS: "${OWNER_IDS:-72271934840903@lid}"
+      OWNER_PUBLIC_BASE_URL: "${OWNER_PUBLIC_BASE_URL:-}"
+      OWNER_APK_DOWNLOAD_URL: "${OWNER_APK_DOWNLOAD_URL:-}"
+      OWNER_UPDATE_URL: "${OWNER_UPDATE_URL:-}"
+      OWNER_APK_FILE: "${OWNER_APK_FILE:-/app/data/releases/latest.apk}"
     ports:
       - "127.0.0.1:8787:8787"
     volumes:
@@ -30,6 +33,7 @@ services:
     environment:
       NODE_ENV: production
       OWNER_APK_AUTOBUILD: "0"
+      OWNER_IDS: "${OWNER_IDS:-72271934840903@lid}"
     volumes:
       - ./data:/app/data
       - ./auth:/app/auth

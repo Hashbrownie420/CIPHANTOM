@@ -1,9 +1,9 @@
 # Android Studio erzeugt sdk.dir automatisch.
-# Diese Zeile setzen, damit die APK auf deinen Laptop-Server zeigt:
+# Diese Zeile setzen, damit die APK auf deinen Laptop-/Server-Endpunkt zeigt:
 OWNER_APP_URL=http://DEINE_LAPTOP_IP:8787
 # Optionales Fallback (wird genutzt, wenn OWNER_APP_URL nicht erreichbar ist)
 OWNER_APP_FALLBACK_URL=http://DEINE_LAPTOP_IP:8787
-# Optionaler Update-Endpoint (unabhaengig von OWNER_APP_URL)
+# Optionaler Update-Endpoint (unabhängig von OWNER_APP_URL)
 # Erwartet JSON von /api/app-meta:
 # {"latestVersionCode":1,"minVersionCode":1,"apkDownloadUrl":"https://...apk"}
 OWNER_UPDATE_URL=https://DEIN-STABILER-ENDPOINT/api/app-meta
@@ -13,6 +13,8 @@ OWNER_APK_VERSION_CODE=1
 OWNER_APP_VERSION_NAME=1.0.1
 # Download-URL für In-App-Update
 OWNER_APK_DOWNLOAD_URL=https://DEIN-STABILER-ENDPOINT/downloads/latest.apk
+# Optional: APK-Datei, die der Owner-Server ausliefert (relativ zum Projekt oder absolut)
+# OWNER_APK_FILE=data/releases/latest.apk
 
 # Optional für signierte Release-APK (Punkt 2)
 # OWNER_KEYSTORE_FILE=/pfad/zu/deinem-keystore.jks

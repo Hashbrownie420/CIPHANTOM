@@ -129,15 +129,15 @@ function renderDbCards(rows) {
           const keys = Object.keys(r);
           const rid = Number(r.__rowid || 0);
           const titleKey = titleKeys.find((k) => r[k] != null && String(r[k]).trim() !== "");
-          const titleValue = titleKey ? String(r[titleKey]) : "";
+          const titleValue = titleKey ? formatCellValue(r[titleKey]) : "";
           const body = keys
             .filter((k) => k !== "__rowid")
-            .map((k) => `<div class="dbCardKv"><span>${k}</span><strong>${String(r[k] ?? "-")}</strong></div>`)
+            .map((k) => `<div class="dbCardKv"><span>${escapeHtml(k)}</span><strong>${escapeHtml(formatCellValue(r[k]))}</strong></div>`)
             .join("");
           return `
             <article class="dbCard">
               <div class="dbCardHead">
-                <span>${titleValue || "Datensatz"}</span>
+                <span>${escapeHtml(titleValue || "Datensatz")}</span>
                 ${rid > 0 ? `<b>#${rid}</b>` : ""}
               </div>
               ${body}
@@ -190,7 +190,7 @@ function updateProcessAutoRefresh(target) {
 }
 
 function kvRow(k, v) {
-  return `<div class="kv"><span class="k">${k}</span><span class="v">${v}</span></div>`;
+  return `<div class="kv"><span class="k">${escapeHtml(k)}</span><span class="v">${escapeHtml(formatCellValue(v))}</span></div>`;
 }
 
 function fmtVersion(versionCode) {
@@ -311,7 +311,7 @@ function renderInfo(data, appMeta, clientInfo) {
 async function loadTables() {
   const data = await api("/api/db/tables");
   const select = $("tableSelect");
-  const options = data.tables.map((t) => `<option value="${t}">${t}</option>`).join("");
+  const options = data.tables.map((t) => `<option value="${escapeHtml(t)}">${escapeHtml(t)}</option>`).join("");
   select.innerHTML = options;
   const formSelect = $("dbFormTableSelect");
   if (formSelect) formSelect.innerHTML = options;
@@ -582,7 +582,7 @@ function renderDbFormFields(columns, rowData = {}) {
   wrap.innerHTML = items
     .map((c) => {
       const val = rowData[c.name] == null ? "" : String(rowData[c.name]);
-      return `<label class="fieldLabel">${c.name}<input data-db-col="${c.name}" type="text" value="${val.replace(/"/g, "&quot;")}" /></label>`;
+      return `<label class="fieldLabel">${escapeHtml(c.name)}<input data-db-col="${escapeHtml(c.name)}" type="text" value="${escapeHtml(val)}" /></label>`;
     })
     .join("");
 }
@@ -1291,10 +1291,11 @@ async function runSecurityAction(mode) {
 
 function renderProcStatus(data) {
   const s = data?.status || {};
+  const processName = escapeHtml(data?.processName || "-");
   return `
     <div class="infoGrid">
       <div class="infoCard">
-        <h4 class="infoTitle">${data?.processName || "-"}</h4>
+        <h4 class="infoTitle">${processName}</h4>
         ${kvRow("Status", s.status || "-")}
         ${kvRow("PID", s.pid ?? "-")}
         ${kvRow("Restarts", s.restarts ?? "-")}
@@ -1322,14 +1323,17 @@ function escapeHtml(v) {
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;");
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
 }
 
 function renderAdminStatus(data) {
   const server = data?.server || {};
   const proc = data?.processes || {};
   const ips = Array.isArray(server.ips)
-    ? server.ips.map((i) => `${i.iface} ${i.address} (${i.family}${i.scope ? `, ${i.scope}` : ""})`).join("<br>")
+    ? server.ips
+      .map((i) => escapeHtml(`${i.iface} ${i.address} (${i.family}${i.scope ? `, ${i.scope}` : ""})`))
+      .join("<br>")
     : "-";
   const bot = proc.bot || {};
   const app = proc.app || {};
@@ -1631,18 +1635,20 @@ async function loadProfile() {
         : `${window.location.origin}${rawAvatar.startsWith("/") ? "" : "/"}${rawAvatar}`)
       : "";
     const avatarSrc = avatarUrl ? `${avatarUrl}${avatarUrl.includes("?") ? "&" : "?"}ts=${Date.now()}` : "";
-    const initials = String(p.username || "Owner").slice(0, 2).toUpperCase();
+    const initials = escapeHtml(String(p.username || "Owner").slice(0, 2).toUpperCase());
+    const safeAvatarSrc = escapeHtml(avatarSrc);
+    const safeUsername = escapeHtml(p.username || "-");
     $("profileWrap").innerHTML = `
       <div class="infoGrid">
         <div class="infoCard">
           <div class="profileHeader">
             ${
-              avatarSrc
-                ? `<img class="profileAvatar" src="${avatarSrc}" alt="WhatsApp Avatar" onerror="this.style.display='none';this.nextElementSibling.style.display='inline-flex';" /><div class="profileAvatarFallback" style="display:none">${initials}</div>`
+              safeAvatarSrc
+                ? `<img class="profileAvatar" src="${safeAvatarSrc}" alt="WhatsApp Avatar" onerror="this.style.display='none';this.nextElementSibling.style.display='inline-flex';" /><div class="profileAvatarFallback" style="display:none">${initials}</div>`
                 : `<div class="profileAvatarFallback">${initials}</div>`
             }
             <div>
-              <h4 class="infoTitle">${p.username || "-"}</h4>
+              <h4 class="infoTitle">${safeUsername}</h4>
               <div class="muted smallHint">Profilbild + Biografie</div>
             </div>
           </div>

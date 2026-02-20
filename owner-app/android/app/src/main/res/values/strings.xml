@@ -1,8 +1,8 @@
 <resources>
     <string name="app_name">CIPHERPHANTOM Owner</string>
     <string name="err_unknown">Unbekannter Fehler</string>
-    <string name="err_connect">Verbindung fehlgeschlagen.\n\nURL: %1$s\nFehler: %2$s\n\nPruefe:\n1) Server laeuft auf dem Laptop\n2) Handy und Laptop im selben WLAN\n3) OWNER_APP_URL stimmt in local.properties</string>
+    <string name="err_connect">Verbindung fehlgeschlagen.\n\nURL: %1$s\nFehler: %2$s\n\nPrüfe:\n1) Server läuft auf dem Laptop\n2) Handy und Laptop im selben WLAN\n3) OWNER_APP_URL stimmt in local.properties</string>
     <string name="err_update_required">Update erforderlich.\n\nDiese APK ist veraltet oder nicht kompatibel.\nBitte die neueste Version installieren.</string>
-    <string name="btn_open_update">Update oeffnen</string>
-    <string name="btn_retry">Erneut pruefen</string>
+    <string name="btn_open_update">Update öffnen</string>
+    <string name="btn_retry">Erneut prüfen</string>
 </resources>

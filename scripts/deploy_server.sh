@@ -1,11 +1,16 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-SERVER_USER="${SERVER_USER:-ubuntu}"
-SERVER_HOST="${SERVER_HOST:-130.61.157.46}"
+SERVER_USER="${SERVER_USER:-owner}"
+SERVER_HOST="${SERVER_HOST:-}"
 SERVER_SSH="${SERVER_USER}@${SERVER_HOST}"
 REMOTE_DIR="${REMOTE_DIR:-~/CIPHERPHANTOM}"
 BRANCH="${BRANCH:-main}"
+
+if [[ -z "${SERVER_HOST}" ]]; then
+  echo "[deploy] SERVER_HOST ist leer. Beispiel: SERVER_HOST=dein-server.tld npm run deploy:server" >&2
+  exit 1
+fi
 
 echo "[deploy] target=${SERVER_SSH} dir=${REMOTE_DIR} branch=${BRANCH}"
 

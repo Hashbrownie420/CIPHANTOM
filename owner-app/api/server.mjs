@@ -31,7 +31,8 @@ const PROJECT_ROOT = path.resolve(OWNER_DIR, "..");
 const AVATAR_DIR = path.resolve(PROJECT_ROOT, "data", "avatars");
 const DB_FILE = path.resolve(PROJECT_ROOT, "data", "cipherphantom.db");
 const DB_BACKUP_DIR = path.resolve(PROJECT_ROOT, "data", "backups");
-const DB_BACKUP_KEEP = Math.max(1, Number(process.env.OWNER_DB_BACKUP_KEEP || 20));
+const parsedBackupKeep = Number(process.env.OWNER_DB_BACKUP_KEEP || 20);
+const DB_BACKUP_KEEP = Number.isFinite(parsedBackupKeep) && parsedBackupKeep > 0 ? Math.floor(parsedBackupKeep) : 20;
 const ADMIN_FLAGS_FILE = path.resolve(PROJECT_ROOT, "data", "admin-flags.json");
 const ADMIN_JOBS_FILE = path.resolve(PROJECT_ROOT, "data", "admin-jobs.json");
 const SESSION_STORE_FILE = path.resolve(PROJECT_ROOT, "data", "owner-sessions.json");
@@ -46,8 +47,9 @@ const DEFAULT_APK_FILE = path.resolve(
   "debug",
   "app-debug.apk"
 );
-const PORT = Number(process.env.OWNER_APP_PORT || 8787);
-const HOST = String(process.env.OWNER_APP_HOST || "0.0.0.0");
+const parsedPort = Number(process.env.OWNER_APP_PORT || 8787);
+const PORT = Number.isFinite(parsedPort) && parsedPort > 0 ? parsedPort : 8787;
+const HOST = String(process.env.OWNER_APP_HOST || "0.0.0.0").trim() || "0.0.0.0";
 const LATEST_APK_VERSION = Number(process.env.OWNER_LATEST_APK_VERSION || 1);
 const MIN_APK_VERSION = Number(process.env.OWNER_MIN_APK_VERSION || 1);
 const APK_DOWNLOAD_URL = String(process.env.OWNER_APK_DOWNLOAD_URL || "").trim();
@@ -57,9 +59,14 @@ const OWNER_IDS = new Set(
     .map((v) => v.trim())
     .filter(Boolean)
 );
+const OWNER_PUBLIC_BASE_URL = String(process.env.OWNER_PUBLIC_BASE_URL || "").trim().replace(/\/+$/, "");
+const OWNER_ALLOW_QUERY_TOKEN = String(process.env.OWNER_ALLOW_QUERY_TOKEN || "0") === "1";
+const PM2_UNAVAILABLE_CODES = new Set(["ENOENT", "PM2_UNAVAILABLE"]);
 
 const sessions = new Map();
-const SESSION_TTL_HOURS = Math.max(1, Number(process.env.OWNER_SESSION_TTL_HOURS || 12));
+const parsedSessionTtlHours = Number(process.env.OWNER_SESSION_TTL_HOURS || 12);
+const SESSION_TTL_HOURS =
+  Number.isFinite(parsedSessionTtlHours) && parsedSessionTtlHours > 0 ? parsedSessionTtlHours : 12;
 const SESSION_TTL_MS = SESSION_TTL_HOURS * 60 * 60 * 1000;
 const execFileAsync = promisify(execFile);
 const PROCESS_MAP = {
@@ -233,6 +240,7 @@ function getTokenFromReq(req) {
   const raw = req.headers.authorization || "";
   const parts = raw.split(" ");
   if (parts.length === 2 && /^Bearer$/i.test(parts[0])) return parts[1];
+  if (!OWNER_ALLOW_QUERY_TOKEN) return null;
   try {
     const url = new URL(req.url || "/", `http://${req.headers.host || "localhost"}`);
     const q = String(url.searchParams.get("token") || "").trim();
@@ -268,7 +276,8 @@ function requireAuth(req, res) {
 function safeFilePath(urlPath) {
   const clean = urlPath === "/" ? "/index.html" : urlPath;
   const full = path.normalize(path.join(WEB_DIR, clean));
-  if (!full.startsWith(WEB_DIR)) return null;
+  const rel = path.relative(WEB_DIR, full);
+  if (rel.startsWith("..") || path.isAbsolute(rel)) return null;
   return full;
 }
 
@@ -311,9 +320,35 @@ function getMetaUpdatedAt() {
   return null;
 }
 
+function resolveFileFromCandidate(raw) {
+  const value = String(raw || "").trim();
+  if (!value) return "";
+  return path.isAbsolute(value) ? value : path.resolve(PROJECT_ROOT, value);
+}
+
+function fileExists(filePath) {
+  try {
+    return Boolean(filePath) && fs.existsSync(filePath) && fs.statSync(filePath).isFile();
+  } catch {
+    return false;
+  }
+}
+
 function resolveApkFilePath(props = {}) {
-  const candidate = String(props.OWNER_APK_FILE || "").trim();
-  return candidate || process.env.OWNER_APK_FILE || DEFAULT_APK_FILE;
+  const fromProps = resolveFileFromCandidate(props.OWNER_APK_FILE || "");
+  const fromEnv = resolveFileFromCandidate(process.env.OWNER_APK_FILE || "");
+  const releaseApk = path.resolve(PROJECT_ROOT, "data", "releases", "latest.apk");
+  const candidates = [fromProps, fromEnv, releaseApk, DEFAULT_APK_FILE].filter(Boolean);
+  const existing = candidates.find((p) => fileExists(p));
+  return existing || candidates[0] || DEFAULT_APK_FILE;
+}
+
+function resolvePublicBaseUrl(req = null) {
+  if (OWNER_PUBLIC_BASE_URL) return OWNER_PUBLIC_BASE_URL;
+  const host = String(req?.headers?.host || "").trim();
+  if (!host) return "";
+  const proto = String(req?.headers?.["x-forwarded-proto"] || "").split(",")[0].trim() || "http";
+  return `${proto}://${host}`;
 }
 
 function ensureDir(dir) {
@@ -413,7 +448,8 @@ function sendDbBackup(res, fileName) {
     return json(res, 400, { ok: false, error: "Ungültiger Backup-Dateiname" });
   }
   const full = path.resolve(DB_BACKUP_DIR, safeName);
-  if (!full.startsWith(DB_BACKUP_DIR)) {
+  const rel = path.relative(DB_BACKUP_DIR, full);
+  if (rel.startsWith("..") || path.isAbsolute(rel)) {
     return json(res, 400, { ok: false, error: "Bad path" });
   }
   if (!fs.existsSync(full) || fs.statSync(full).isDirectory()) {
@@ -465,12 +501,23 @@ async function runDbIntegrityCheck() {
 async function checkPm2Health() {
   const listRes = await getPm2List();
   if (!listRes.ok) {
-    return { ok: false, error: listRes.error || "pm2 check failed", online: 0, total: 0 };
+    if (PM2_UNAVAILABLE_CODES.has(String(listRes.code || ""))) {
+      return {
+        ok: true,
+        managed: false,
+        mode: "container",
+        reason: "pm2_unavailable",
+        error: listRes.error || "pm2 not available",
+        online: 0,
+        total: 0,
+      };
+    }
+    return { ok: false, managed: true, error: listRes.error || "pm2 check failed", online: 0, total: 0 };
   }
   const list = listRes.list || [];
   const relevant = list.filter((p) => ["cipherphantom-bot", "cipherphantom-owner-app", "cipherphantom-owner-remote"].includes(p?.name));
   const online = relevant.filter((p) => String(p?.pm2_env?.status || "") === "online").length;
-  return { ok: online >= 1, online, total: relevant.length };
+  return { ok: online >= 1, managed: true, mode: "pm2", online, total: relevant.length };
 }
 
 async function checkDiskHealth(baseDir) {
@@ -616,18 +663,23 @@ function sendStatic(req, res) {
   res.end(content);
 }
 
-function sendApk(res, filePath) {
-  if (!fs.existsSync(filePath) || fs.statSync(filePath).isDirectory()) {
+function sendApk(reqMethod, res, filePath) {
+  if (!fileExists(filePath) || fs.statSync(filePath).isDirectory()) {
     return json(res, 404, { ok: false, error: "APK not found" });
   }
-  const content = fs.readFileSync(filePath);
+  const size = fs.statSync(filePath).size;
   res.writeHead(200, {
     "Content-Type": "application/vnd.android.package-archive",
-    "Content-Length": content.length,
+    "Content-Length": size,
     "Cache-Control": "no-store",
     "Content-Disposition": "attachment; filename=\"cipherphantom-owner-latest.apk\"",
     "X-Content-Type-Options": "nosniff",
   });
+  if (String(reqMethod || "GET").toUpperCase() === "HEAD") {
+    res.end();
+    return;
+  }
+  const content = fs.readFileSync(filePath);
   res.end(content);
 }
 
@@ -635,7 +687,8 @@ function sendAvatar(res, fileName) {
   const rel = String(fileName || "").replace(/^\/+/, "");
   if (!rel) return json(res, 400, { ok: false, error: "Bad file" });
   const full = path.resolve(AVATAR_DIR, rel);
-  if (!full.startsWith(AVATAR_DIR)) return json(res, 400, { ok: false, error: "Bad path" });
+  const safeRel = path.relative(AVATAR_DIR, full);
+  if (safeRel.startsWith("..") || path.isAbsolute(safeRel)) return json(res, 400, { ok: false, error: "Bad path" });
   if (!fs.existsSync(full) || fs.statSync(full).isDirectory()) {
     return json(res, 404, { ok: false, error: "Avatar not found" });
   }
@@ -688,7 +741,8 @@ function avatarPathExists(mediaPath) {
   const rel = String(mediaPath || "").replace(/^\/media\/avatar\//, "");
   if (!rel) return false;
   const full = path.resolve(AVATAR_DIR, rel);
-  if (!full.startsWith(AVATAR_DIR)) return false;
+  const safeRel = path.relative(AVATAR_DIR, full);
+  if (safeRel.startsWith("..") || path.isAbsolute(safeRel)) return false;
   return fs.existsSync(full) && fs.statSync(full).isFile();
 }
 
@@ -696,7 +750,8 @@ function avatarPathToFull(mediaPath) {
   const rel = String(mediaPath || "").replace(/^\/media\/avatar\//, "");
   if (!rel) return "";
   const full = path.resolve(AVATAR_DIR, rel);
-  if (!full.startsWith(AVATAR_DIR)) return "";
+  const safeRel = path.relative(AVATAR_DIR, full);
+  if (safeRel.startsWith("..") || path.isAbsolute(safeRel)) return "";
   return full;
 }
 
@@ -736,19 +791,18 @@ function getNetworkIps() {
 }
 
 function getPublicEndpointFromReq(req) {
-  const host = String(req?.headers?.host || "").trim();
-  if (!host) return "";
-  const proto = String(req?.headers?.["x-forwarded-proto"] || "").split(",")[0].trim() || "http";
-  return `${proto}://${host}`;
+  return resolvePublicBaseUrl(req);
 }
 
 async function runPm2(args) {
   try {
     const { stdout, stderr } = await execFileAsync("pm2", args, { maxBuffer: 1024 * 1024 * 8 });
-    return { ok: true, stdout: String(stdout || ""), stderr: String(stderr || "") };
+    return { ok: true, code: null, stdout: String(stdout || ""), stderr: String(stderr || "") };
   } catch (err) {
+    const code = String(err?.code || "");
     return {
       ok: false,
+      code: code || "PM2_FAILED",
       stdout: String(err?.stdout || ""),
       stderr: String(err?.stderr || err?.message || "pm2 failed"),
     };
@@ -757,14 +811,18 @@ async function runPm2(args) {
 
 async function getPm2List() {
   const res = await runPm2(["jlist"]);
-  if (!res.ok) return { ok: false, error: res.stderr };
+  if (!res.ok) {
+    const code = String(res.code || "");
+    const normalized = code === "ENOENT" ? "PM2_UNAVAILABLE" : code || "PM2_FAILED";
+    return { ok: false, code: normalized, error: res.stderr };
+  }
   let list = [];
   try {
     list = JSON.parse(res.stdout || "[]");
   } catch {
-    return { ok: false, error: "pm2 jlist parse failed" };
+    return { ok: false, code: "PM2_PARSE_ERROR", error: "pm2 jlist parse failed" };
   }
-  return { ok: true, list };
+  return { ok: true, code: null, list };
 }
 
 async function runShell(command) {
@@ -821,21 +879,36 @@ async function resolveRunningProcessName(target) {
   const candidates = resolveProcessCandidates(target);
   if (!candidates) return { ok: false, error: "Target muss bot|app sein" };
   const listRes = await getPm2List();
-  if (!listRes.ok) return { ok: false, error: listRes.error };
+  if (!listRes.ok) {
+    if (PM2_UNAVAILABLE_CODES.has(String(listRes.code || ""))) {
+      return {
+        ok: false,
+        code: "PM2_UNAVAILABLE",
+        error: "Prozesssteuerung über PM2 ist im aktuellen Laufmodus nicht verfügbar.",
+      };
+    }
+    return { ok: false, code: String(listRes.code || "PM2_FAILED"), error: listRes.error };
+  }
   const found = candidates.find((name) => listRes.list.some((p) => p?.name === name));
-  return { ok: true, processName: found || candidates[0], list: listRes.list };
+  return { ok: true, code: null, processName: found || candidates[0], list: listRes.list };
 }
 
 async function getPm2Status(processName) {
   const listRes = await getPm2List();
-  if (!listRes.ok) return { ok: false, error: listRes.error };
+  if (!listRes.ok) {
+    if (PM2_UNAVAILABLE_CODES.has(String(listRes.code || ""))) {
+      return { ok: false, code: "PM2_UNAVAILABLE", error: "PM2 nicht verfügbar" };
+    }
+    return { ok: false, code: String(listRes.code || "PM2_FAILED"), error: listRes.error };
+  }
   const list = listRes.list;
   const row = list.find((p) => p?.name === processName);
-  if (!row) return { ok: false, error: `Process '${processName}' nicht gefunden` };
+  if (!row) return { ok: false, code: "PM2_PROCESS_NOT_FOUND", error: `Process '${processName}' nicht gefunden` };
   const pmUptime = Number(row?.pm2_env?.pm_uptime || 0);
   const uptimeSec = pmUptime > 0 ? Math.max(0, Math.floor((Date.now() - pmUptime) / 1000)) : 0;
   return {
     ok: true,
+    code: null,
     data: {
       name: row.name,
       status: row?.pm2_env?.status || "unknown",
@@ -1040,16 +1113,38 @@ async function getProcessStatus(res, target) {
       },
     });
   }
+
+  const fallbackStatus = (t) => ({
+    name: t === "app" ? "owner-app (self)" : "bot",
+    status: t === "app" ? "online" : "unmanaged",
+    pid: t === "app" ? process.pid : null,
+    restarts: null,
+    uptimeSec: t === "app" ? Math.floor(process.uptime()) : 0,
+    mode: "container",
+    managed: false,
+    note: "PM2 nicht verfügbar",
+  });
+
   if (safeTarget === "all") {
     const targets = ["bot", "app"];
     const statuses = {};
     for (const t of targets) {
       const resolved = await resolveRunningProcessName(t);
       if (!resolved.ok) {
-        statuses[t] = { ok: false, error: resolved.error };
+        if (resolved.code === "PM2_UNAVAILABLE") {
+          const fallback = fallbackStatus(t);
+          statuses[t] = { ok: true, processName: fallback.name, status: fallback };
+        } else {
+          statuses[t] = { ok: false, error: resolved.error };
+        }
         continue;
       }
       const status = await getPm2Status(resolved.processName);
+      if (!status.ok && status.code === "PM2_UNAVAILABLE") {
+        const fallback = fallbackStatus(t);
+        statuses[t] = { ok: true, processName: fallback.name, status: fallback };
+        continue;
+      }
       statuses[t] = status.ok
         ? { ok: true, processName: resolved.processName, status: status.data }
         : { ok: false, processName: resolved.processName, error: status.error };
@@ -1058,10 +1153,22 @@ async function getProcessStatus(res, target) {
   }
 
   const resolved = await resolveRunningProcessName(safeTarget);
-  if (!resolved.ok) return json(res, 400, { ok: false, error: "Target muss bot|app|all|server sein" });
+  if (!resolved.ok) {
+    if (resolved.code === "PM2_UNAVAILABLE" && (safeTarget === "bot" || safeTarget === "app")) {
+      const fallback = fallbackStatus(safeTarget);
+      return json(res, 200, { ok: true, target: safeTarget, processName: fallback.name, status: fallback });
+    }
+    return json(res, 400, { ok: false, error: "Target muss bot|app|all|server sein" });
+  }
   const processName = resolved.processName;
   const status = await getPm2Status(processName);
-  if (!status.ok) return json(res, 500, { ok: false, error: status.error });
+  if (!status.ok) {
+    if (status.code === "PM2_UNAVAILABLE" && (safeTarget === "bot" || safeTarget === "app")) {
+      const fallback = fallbackStatus(safeTarget);
+      return json(res, 200, { ok: true, target: safeTarget, processName: fallback.name, status: fallback });
+    }
+    return json(res, 500, { ok: false, error: status.error });
+  }
   return json(res, 200, { ok: true, target: safeTarget, processName, status: status.data });
 }
 
@@ -1073,13 +1180,20 @@ async function getProcessLogs(res, target, lines = 80) {
     const all = fs.readFileSync(p, "utf8").split("\n");
     return all.slice(-safeLines).join("\n");
   };
+  const unmanagedLog = (t) => ({
+    ok: true,
+    processName: t === "app" ? "owner-app (self)" : "bot",
+    lines: safeLines,
+    out: "",
+    err: "PM2-Logs sind im Docker-/Container-Modus nicht verfügbar.",
+  });
 
   if (safeTarget === "all") {
     const logs = {};
     for (const t of ["bot", "app"]) {
       const resolved = await resolveRunningProcessName(t);
       if (!resolved.ok) {
-        logs[t] = { ok: false, error: resolved.error };
+        logs[t] = resolved.code === "PM2_UNAVAILABLE" ? unmanagedLog(t) : { ok: false, error: resolved.error };
         continue;
       }
       const processName = resolved.processName;
@@ -1101,18 +1215,28 @@ async function getProcessLogs(res, target, lines = 80) {
     const processName = appResolved.ok ? appResolved.processName : "cipherphantom-owner-app";
     const outPath = path.resolve(process.env.HOME || "", ".pm2", "logs", `${processName}-out.log`);
     const errPath = path.resolve(process.env.HOME || "", ".pm2", "logs", `${processName}-error.log`);
+    const serverErr = appResolved.ok
+      ? readTail(errPath)
+      : appResolved.code === "PM2_UNAVAILABLE"
+        ? "PM2-Logs sind im Docker-/Container-Modus nicht verfügbar."
+        : "";
     return json(res, 200, {
       ok: true,
       target: "server",
       processName,
       lines: safeLines,
       out: readTail(outPath),
-      err: readTail(errPath),
+      err: serverErr,
     });
   }
 
   const resolved = await resolveRunningProcessName(safeTarget);
-  if (!resolved.ok) return json(res, 400, { ok: false, error: "Target muss bot|app|all|server sein" });
+  if (!resolved.ok) {
+    if (resolved.code === "PM2_UNAVAILABLE" && (safeTarget === "bot" || safeTarget === "app")) {
+      return json(res, 200, { ok: true, target: safeTarget, ...unmanagedLog(safeTarget) });
+    }
+    return json(res, 400, { ok: false, error: "Target muss bot|app|all|server sein" });
+  }
   const processName = resolved.processName;
   const outPath = path.resolve(process.env.HOME || "", ".pm2", "logs", `${processName}-out.log`);
   const errPath = path.resolve(process.env.HOME || "", ".pm2", "logs", `${processName}-error.log`);
@@ -1129,6 +1253,14 @@ async function getProcessLogs(res, target, lines = 80) {
 function streamProcessLogs(req, res, target, lines = 80) {
   const safeTarget = String(target || "all").toLowerCase();
   const safeLines = Math.max(10, Math.min(300, Number(lines || 80)));
+  const unmanagedLog = (t) => ({
+    ok: true,
+    processName: t === "app" ? "owner-app (self)" : "bot",
+    out: "",
+    err: "PM2-Logs sind im Docker-/Container-Modus nicht verfügbar.",
+    mode: "container",
+    managed: false,
+  });
   res.writeHead(200, {
     "Content-Type": "text/event-stream; charset=utf-8",
     "Cache-Control": "no-cache, no-transform",
@@ -1141,7 +1273,7 @@ function streamProcessLogs(req, res, target, lines = 80) {
         for (const t of ["bot", "app"]) {
           const resolved = await resolveRunningProcessName(t);
           if (!resolved.ok) {
-            logs[t] = { ok: false, error: resolved.error };
+            logs[t] = resolved.code === "PM2_UNAVAILABLE" ? unmanagedLog(t) : { ok: false, error: resolved.error };
             continue;
           }
           const processName = resolved.processName;
@@ -1157,7 +1289,12 @@ function streamProcessLogs(req, res, target, lines = 80) {
         return { ok: true, target: "all", logs };
       }
       const resolved = await resolveRunningProcessName(safeTarget);
-      if (!resolved.ok) return { ok: false, error: resolved.error };
+      if (!resolved.ok) {
+        if (resolved.code === "PM2_UNAVAILABLE" && (safeTarget === "bot" || safeTarget === "app")) {
+          return { ok: true, target: safeTarget, ...unmanagedLog(safeTarget) };
+        }
+        return { ok: false, error: resolved.error };
+      }
       const processName = resolved.processName;
       const outPath = path.resolve(process.env.HOME || "", ".pm2", "logs", `${processName}-out.log`);
       const errPath = path.resolve(process.env.HOME || "", ".pm2", "logs", `${processName}-error.log`);
@@ -1225,11 +1362,36 @@ async function processAction(res, target, action, session = null) {
         : { ok: false, processName, error: status.error };
     }
     await auditAdminAction(session, "process_action_all", safeTarget, { action: safeAction, results });
-    return json(res, 200, { ok: true, target: "all", action: safeAction, results });
+    const entries = Object.values(results);
+    const unmanagedOnly =
+      entries.length > 0 &&
+      entries.every((r) => !r?.ok) &&
+      entries.every((r) => /pm2|nicht verfügbar/i.test(String(r?.error || "")));
+    return json(
+      res,
+      unmanagedOnly ? 409 : 200,
+      unmanagedOnly
+        ? {
+            ok: false,
+            target: "all",
+            action: safeAction,
+            error: "Prozesssteuerung ist im Docker-/Container-Modus nicht verfügbar.",
+            results,
+          }
+        : { ok: true, target: "all", action: safeAction, results }
+    );
   }
 
   const resolved = await resolveRunningProcessName(safeTarget);
-  if (!resolved.ok) return json(res, 400, { ok: false, error: "Target muss bot|app|all|server sein" });
+  if (!resolved.ok) {
+    if (resolved.code === "PM2_UNAVAILABLE") {
+      return json(res, 409, {
+        ok: false,
+        error: "Prozesssteuerung ist im Docker-/Container-Modus nicht verfügbar.",
+      });
+    }
+    return json(res, 400, { ok: false, error: "Target muss bot|app|all|server sein" });
+  }
   const processName = resolved.processName;
   const result = await runPm2([safeAction, processName]);
   if (!result.ok) return json(res, 500, { ok: false, error: result.stderr });
@@ -1277,6 +1439,30 @@ async function getServerAdminSummary(req, res) {
   const appResolved = await resolveRunningProcessName("app");
   const botStatus = botResolved.ok ? await getPm2Status(botResolved.processName) : { ok: false, error: botResolved.error };
   const appStatus = appResolved.ok ? await getPm2Status(appResolved.processName) : { ok: false, error: appResolved.error };
+  const botFallback = {
+    status: "unmanaged",
+    pid: null,
+    restarts: null,
+    uptimeSec: 0,
+    mode: "container",
+    managed: false,
+    note: "PM2 nicht verfügbar",
+  };
+  const appFallback = {
+    status: "online",
+    pid: process.pid,
+    restarts: null,
+    uptimeSec: Math.floor(process.uptime()),
+    mode: "container",
+    managed: false,
+    note: "PM2 nicht verfügbar",
+  };
+  const isBotPm2Unavailable =
+    (!botResolved.ok && botResolved.code === "PM2_UNAVAILABLE") ||
+    (!botStatus.ok && botStatus.code === "PM2_UNAVAILABLE");
+  const isAppPm2Unavailable =
+    (!appResolved.ok && appResolved.code === "PM2_UNAVAILABLE") ||
+    (!appStatus.ok && appStatus.code === "PM2_UNAVAILABLE");
   return json(res, 200, {
     ok: true,
     server: {
@@ -1289,8 +1475,8 @@ async function getServerAdminSummary(req, res) {
       rebootAllowed: OWNER_ALLOW_SERVER_REBOOT,
     },
     processes: {
-      bot: botStatus.ok ? botStatus.data : { status: "unknown", error: botStatus.error },
-      app: appStatus.ok ? appStatus.data : { status: "unknown", error: appStatus.error },
+      bot: botStatus.ok ? botStatus.data : (isBotPm2Unavailable ? botFallback : { status: "unknown", error: botStatus.error }),
+      app: appStatus.ok ? appStatus.data : (isAppPm2Unavailable ? appFallback : { status: "unknown", error: appStatus.error }),
     },
   });
 }
@@ -1531,6 +1717,7 @@ const server = http.createServer(async (req, res) => {
         const props = readLocalProps();
         const apkFile = resolveApkFilePath(props);
         const integrity = getApkIntegrityMeta(apkFile);
+        const publicBaseUrl = resolvePublicBaseUrl(req);
         const panelVersion = getOwnerPanelVersion();
         const metaUpdatedAt = getMetaUpdatedAt();
         const latestFromProps = Number(props.OWNER_APK_VERSION_CODE || 0);
@@ -1544,7 +1731,9 @@ const server = http.createServer(async (req, res) => {
         const apkDownloadUrl =
           String(props.OWNER_APK_DOWNLOAD_URL || "").trim() ||
           APK_DOWNLOAD_URL ||
+          (publicBaseUrl ? `${publicBaseUrl}/downloads/latest.apk` : "") ||
           null;
+        const serverUrl = publicBaseUrl || `http://${HOST}:${PORT}`;
 
         return json(res, 200, {
           ok: true,
@@ -1554,7 +1743,7 @@ const server = http.createServer(async (req, res) => {
           apkDownloadUrl,
           apkSha256: integrity.apkSha256,
           apkSizeBytes: integrity.apkSizeBytes,
-          serverUrl: `http://${HOST}:${PORT}`,
+          serverUrl,
           ts: metaUpdatedAt,
         });
       }
@@ -1853,10 +2042,10 @@ const server = http.createServer(async (req, res) => {
       });
     }
 
-    if (req.method === "GET" && pathname === "/downloads/latest.apk") {
+    if ((req.method === "GET" || req.method === "HEAD") && pathname === "/downloads/latest.apk") {
       const props = readLocalProps();
       const apkFile = resolveApkFilePath(props);
-      return sendApk(res, apkFile);
+      return sendApk(req.method, res, apkFile);
     }
 
     if (req.method === "GET" && pathname.startsWith("/media/avatar/")) {

@@ -25,11 +25,11 @@ npm run release:owner-apk
 
 Optionale Variablen:
 
-- `SERVER_USER` (default: `ubuntu`)
-- `SERVER_HOST` (default: `130.61.157.46`)
+- `SERVER_USER` (default: `owner`)
+- `SERVER_HOST` (**erforderlich**, kein Default)
 - `REMOTE_DIR` (default: `~/CIPHERPHANTOM`)
 - `BRANCH` (nur deploy, default: `main`)
-- `SERVER_BASE_URL` (nur release, default: `http://<SERVER_HOST>:8787`)
+- `SERVER_BASE_URL` (nur release, optional; default: `http://<SERVER_HOST>`)
 
 ## Befehle
 
@@ -39,7 +39,7 @@ Standard-Prefix: `-`
 - `-ping`
 - `-prefix <neues_prefix>` (pro Chat)
 
-Beispiel: `-prefix !` setzt den Prefix nur fuer den aktuellen Chat auf `!`.
+Beispiel: `-prefix !` setzt den Prefix nur für den aktuellen Chat auf `!`.
 
 ## Docker/Compose (Server)
 
@@ -47,6 +47,7 @@ Voraussetzung: Docker + Compose Plugin installiert.
 
 ```bash
 # im Repo
+cp .env.example .env
 docker compose build
 docker compose up -d
 docker compose ps
@@ -64,4 +65,4 @@ Hinweise:
 - App wird nur lokal auf `127.0.0.1:8787` veröffentlicht (für Nginx Reverse Proxy).
 - Persistente Daten liegen außerhalb der Container in `./data` und `./auth`.
 - `OWNER_APK_AUTOBUILD` ist im Bot-Container standardmäßig deaktiviert.
-
+- Empfehlung: Server-URLs über `.env` setzen (`OWNER_PUBLIC_BASE_URL`, `OWNER_APK_DOWNLOAD_URL`, `OWNER_UPDATE_URL`).
