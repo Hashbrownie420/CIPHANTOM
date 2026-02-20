@@ -3,6 +3,7 @@ auth/
 
 # Runtime data / local state
 data/
+reports/
 *.db
 *.sqlite
 *.sqlite3

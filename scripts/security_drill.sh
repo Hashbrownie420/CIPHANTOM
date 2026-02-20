@@ -53,7 +53,21 @@ echo "report_dir=$REPORT_DIR"
 
 section "PORTSCAN"
 if command -v nmap >/dev/null 2>&1; then
-  nmap -Pn -sS -sV -p 22,80,443,8787 "$SERVER_HOST" | tee "$REPORT_DIR/portscan.txt"
+  # -sS needs root. Try sudo nmap first; fallback to -sT if sudo/nmap fails.
+  if [[ "${EUID}" -eq 0 ]]; then
+    nmap -Pn -sS -sV -p 22,80,443,8787 "$SERVER_HOST" | tee "$REPORT_DIR/portscan.txt"
+  else
+    if command -v sudo >/dev/null 2>&1; then
+      if sudo nmap -Pn -sS -sV -p 22,80,443,8787 "$SERVER_HOST" | tee "$REPORT_DIR/portscan.txt"; then
+        :
+      else
+        echo "WARN: SYN scan via sudo fehlgeschlagen, fallback auf -sT" | tee "$REPORT_DIR/portscan.txt"
+        nmap -Pn -sT -sV -p 22,80,443,8787 "$SERVER_HOST" | tee -a "$REPORT_DIR/portscan.txt"
+      fi
+    else
+      nmap -Pn -sT -sV -p 22,80,443,8787 "$SERVER_HOST" | tee "$REPORT_DIR/portscan.txt"
+    fi
+  fi
 else
   echo "nmap nicht installiert -> übersprungen" | tee "$REPORT_DIR/portscan.txt"
 fi
