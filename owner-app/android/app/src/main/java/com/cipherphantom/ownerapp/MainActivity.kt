@@ -224,7 +224,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun normalizeSha256(raw: String?): String? {
-        val value = String(raw ?: "").trim().lowercase().replace(Regex("[^a-f0-9]"), "")
+        val value = (raw ?: "").trim().lowercase().replace(Regex("[^a-f0-9]"), "")
         return if (value.length == 64) value else null
     }
 
