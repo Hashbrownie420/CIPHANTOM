@@ -62,6 +62,11 @@ const OWNER_IDS = new Set(
 const OWNER_PUBLIC_BASE_URL = String(process.env.OWNER_PUBLIC_BASE_URL || "").trim().replace(/\/+$/, "");
 const OWNER_ALLOW_QUERY_TOKEN = String(process.env.OWNER_ALLOW_QUERY_TOKEN || "0") === "1";
 const PM2_UNAVAILABLE_CODES = new Set(["ENOENT", "PM2_UNAVAILABLE"]);
+const DOCKER_PROCESS_MAP = {
+  bot: ["cipherphantom-bot"],
+  app: ["cipherphantom-owner-app"],
+  all: ["cipherphantom-bot", "cipherphantom-owner-app"],
+};
 
 const sessions = new Map();
 const parsedSessionTtlHours = Number(process.env.OWNER_SESSION_TTL_HOURS || 12);
@@ -502,10 +507,27 @@ async function checkPm2Health() {
   const listRes = await getPm2List();
   if (!listRes.ok) {
     if (PM2_UNAVAILABLE_CODES.has(String(listRes.code || ""))) {
+      const dockerBot = await resolveRunningDockerName("bot");
+      const dockerApp = await resolveRunningDockerName("app");
+      const checks = [];
+      if (dockerBot.ok) checks.push(await getDockerStatus(dockerBot.containerName));
+      if (dockerApp.ok) checks.push(await getDockerStatus(dockerApp.containerName));
+      if (checks.length > 0) {
+        const online = checks.filter((c) => c.ok && String(c.data?.status || "") === "running").length;
+        return {
+          ok: online >= 1,
+          managed: true,
+          mode: "docker",
+          reason: "pm2_unavailable",
+          error: listRes.error || "pm2 not available",
+          online,
+          total: checks.length,
+        };
+      }
       return {
-        ok: true,
+        ok: false,
         managed: false,
-        mode: "container",
+        mode: "unmanaged",
         reason: "pm2_unavailable",
         error: listRes.error || "pm2 not available",
         online: 0,
@@ -807,6 +829,84 @@ async function runPm2(args) {
       stderr: String(err?.stderr || err?.message || "pm2 failed"),
     };
   }
+}
+
+async function runDocker(args) {
+  try {
+    const { stdout, stderr } = await execFileAsync("docker", args, { maxBuffer: 1024 * 1024 * 16 });
+    return { ok: true, code: null, stdout: String(stdout || ""), stderr: String(stderr || "") };
+  } catch (err) {
+    const code = String(err?.code || "");
+    return {
+      ok: false,
+      code: code || "DOCKER_FAILED",
+      stdout: String(err?.stdout || ""),
+      stderr: String(err?.stderr || err?.message || "docker failed"),
+    };
+  }
+}
+
+function resolveDockerCandidates(target) {
+  const key = String(target || "").toLowerCase();
+  const out = DOCKER_PROCESS_MAP[key];
+  return Array.isArray(out) ? out : null;
+}
+
+async function resolveRunningDockerName(target) {
+  const candidates = resolveDockerCandidates(target);
+  if (!candidates) return { ok: false, code: "DOCKER_BAD_TARGET", error: "Target muss bot|app sein" };
+  for (const name of candidates) {
+    const res = await runDocker(["inspect", name, "--format", "{{.Name}}"]);
+    if (res.ok) return { ok: true, code: null, containerName: name };
+  }
+  return { ok: false, code: "DOCKER_CONTAINER_NOT_FOUND", error: "Container nicht gefunden" };
+}
+
+async function getDockerStatus(containerName) {
+  const res = await runDocker(["inspect", containerName, "--format", "{{json .State}}"]);
+  if (!res.ok) return { ok: false, code: String(res.code || "DOCKER_FAILED"), error: res.stderr };
+  try {
+    const state = JSON.parse(String(res.stdout || "").trim() || "{}");
+    const startedAt = String(state?.StartedAt || "");
+    const startedMs = Date.parse(startedAt);
+    const uptimeSec = Number.isFinite(startedMs) ? Math.max(0, Math.floor((Date.now() - startedMs) / 1000)) : 0;
+    return {
+      ok: true,
+      code: null,
+      data: {
+        name: containerName,
+        status: String(state?.Status || "unknown"),
+        uptimeSec,
+        restarts: Number(state?.RestartCount ?? 0),
+        pid: Number(state?.Pid ?? 0) || null,
+        mode: "docker",
+        managed: true,
+      },
+    };
+  } catch {
+    return { ok: false, code: "DOCKER_PARSE_ERROR", error: "docker inspect parse failed" };
+  }
+}
+
+async function getDockerLogs(containerName, lines = 80) {
+  const safeLines = Math.max(10, Math.min(500, Number(lines || 80)));
+  const res = await runDocker(["logs", "--tail", String(safeLines), containerName]);
+  if (!res.ok) return { ok: false, code: String(res.code || "DOCKER_FAILED"), error: res.stderr };
+  const combined = [String(res.stdout || "").trimEnd(), String(res.stderr || "").trimEnd()]
+    .filter(Boolean)
+    .join("\n");
+  return {
+    ok: true,
+    code: null,
+    data: {
+      processName: containerName,
+      lines: safeLines,
+      out: combined,
+      err: "",
+      mode: "docker",
+      managed: true,
+    },
+  };
 }
 
 async function getPm2List() {
@@ -1114,17 +1214,6 @@ async function getProcessStatus(res, target) {
     });
   }
 
-  const fallbackStatus = (t) => ({
-    name: t === "app" ? "owner-app (self)" : "bot",
-    status: t === "app" ? "online" : "unmanaged",
-    pid: t === "app" ? process.pid : null,
-    restarts: null,
-    uptimeSec: t === "app" ? Math.floor(process.uptime()) : 0,
-    mode: "container",
-    managed: false,
-    note: "PM2 nicht verfügbar",
-  });
-
   if (safeTarget === "all") {
     const targets = ["bot", "app"];
     const statuses = {};
@@ -1132,8 +1221,15 @@ async function getProcessStatus(res, target) {
       const resolved = await resolveRunningProcessName(t);
       if (!resolved.ok) {
         if (resolved.code === "PM2_UNAVAILABLE") {
-          const fallback = fallbackStatus(t);
-          statuses[t] = { ok: true, processName: fallback.name, status: fallback };
+          const dockerResolved = await resolveRunningDockerName(t);
+          if (!dockerResolved.ok) {
+            statuses[t] = { ok: false, error: dockerResolved.error };
+            continue;
+          }
+          const dockerStatus = await getDockerStatus(dockerResolved.containerName);
+          statuses[t] = dockerStatus.ok
+            ? { ok: true, processName: dockerResolved.containerName, status: dockerStatus.data }
+            : { ok: false, processName: dockerResolved.containerName, error: dockerStatus.error };
         } else {
           statuses[t] = { ok: false, error: resolved.error };
         }
@@ -1141,8 +1237,15 @@ async function getProcessStatus(res, target) {
       }
       const status = await getPm2Status(resolved.processName);
       if (!status.ok && status.code === "PM2_UNAVAILABLE") {
-        const fallback = fallbackStatus(t);
-        statuses[t] = { ok: true, processName: fallback.name, status: fallback };
+        const dockerResolved = await resolveRunningDockerName(t);
+        if (!dockerResolved.ok) {
+          statuses[t] = { ok: false, error: dockerResolved.error };
+          continue;
+        }
+        const dockerStatus = await getDockerStatus(dockerResolved.containerName);
+        statuses[t] = dockerStatus.ok
+          ? { ok: true, processName: dockerResolved.containerName, status: dockerStatus.data }
+          : { ok: false, processName: dockerResolved.containerName, error: dockerStatus.error };
         continue;
       }
       statuses[t] = status.ok
@@ -1155,8 +1258,16 @@ async function getProcessStatus(res, target) {
   const resolved = await resolveRunningProcessName(safeTarget);
   if (!resolved.ok) {
     if (resolved.code === "PM2_UNAVAILABLE" && (safeTarget === "bot" || safeTarget === "app")) {
-      const fallback = fallbackStatus(safeTarget);
-      return json(res, 200, { ok: true, target: safeTarget, processName: fallback.name, status: fallback });
+      const dockerResolved = await resolveRunningDockerName(safeTarget);
+      if (!dockerResolved.ok) return json(res, 500, { ok: false, error: dockerResolved.error });
+      const dockerStatus = await getDockerStatus(dockerResolved.containerName);
+      if (!dockerStatus.ok) return json(res, 500, { ok: false, error: dockerStatus.error });
+      return json(res, 200, {
+        ok: true,
+        target: safeTarget,
+        processName: dockerResolved.containerName,
+        status: dockerStatus.data,
+      });
     }
     return json(res, 400, { ok: false, error: "Target muss bot|app|all|server sein" });
   }
@@ -1164,8 +1275,16 @@ async function getProcessStatus(res, target) {
   const status = await getPm2Status(processName);
   if (!status.ok) {
     if (status.code === "PM2_UNAVAILABLE" && (safeTarget === "bot" || safeTarget === "app")) {
-      const fallback = fallbackStatus(safeTarget);
-      return json(res, 200, { ok: true, target: safeTarget, processName: fallback.name, status: fallback });
+      const dockerResolved = await resolveRunningDockerName(safeTarget);
+      if (!dockerResolved.ok) return json(res, 500, { ok: false, error: dockerResolved.error });
+      const dockerStatus = await getDockerStatus(dockerResolved.containerName);
+      if (!dockerStatus.ok) return json(res, 500, { ok: false, error: dockerStatus.error });
+      return json(res, 200, {
+        ok: true,
+        target: safeTarget,
+        processName: dockerResolved.containerName,
+        status: dockerStatus.data,
+      });
     }
     return json(res, 500, { ok: false, error: status.error });
   }
@@ -1180,20 +1299,24 @@ async function getProcessLogs(res, target, lines = 80) {
     const all = fs.readFileSync(p, "utf8").split("\n");
     return all.slice(-safeLines).join("\n");
   };
-  const unmanagedLog = (t) => ({
-    ok: true,
-    processName: t === "app" ? "owner-app (self)" : "bot",
-    lines: safeLines,
-    out: "",
-    err: "PM2-Logs sind im Docker-/Container-Modus nicht verfügbar.",
-  });
-
   if (safeTarget === "all") {
     const logs = {};
     for (const t of ["bot", "app"]) {
       const resolved = await resolveRunningProcessName(t);
       if (!resolved.ok) {
-        logs[t] = resolved.code === "PM2_UNAVAILABLE" ? unmanagedLog(t) : { ok: false, error: resolved.error };
+        if (resolved.code === "PM2_UNAVAILABLE") {
+          const dockerResolved = await resolveRunningDockerName(t);
+          if (!dockerResolved.ok) {
+            logs[t] = { ok: false, error: dockerResolved.error };
+            continue;
+          }
+          const dockerLogs = await getDockerLogs(dockerResolved.containerName, safeLines);
+          logs[t] = dockerLogs.ok
+            ? { ok: true, processName: dockerResolved.containerName, lines: safeLines, out: dockerLogs.data.out, err: dockerLogs.data.err }
+            : { ok: false, error: dockerLogs.error };
+        } else {
+          logs[t] = { ok: false, error: resolved.error };
+        }
         continue;
       }
       const processName = resolved.processName;
@@ -1212,6 +1335,18 @@ async function getProcessLogs(res, target, lines = 80) {
 
   if (safeTarget === "server") {
     const appResolved = await resolveRunningProcessName("app");
+    if (!appResolved.ok && appResolved.code === "PM2_UNAVAILABLE") {
+      const dockerResolved = await resolveRunningDockerName("app");
+      if (!dockerResolved.ok) return json(res, 500, { ok: false, error: dockerResolved.error });
+      const dockerLogs = await getDockerLogs(dockerResolved.containerName, safeLines);
+      if (!dockerLogs.ok) return json(res, 500, { ok: false, error: dockerLogs.error });
+      return json(res, 200, {
+        ok: true,
+        target: "server",
+        processName: dockerResolved.containerName,
+        ...dockerLogs.data,
+      });
+    }
     const processName = appResolved.ok ? appResolved.processName : "cipherphantom-owner-app";
     const outPath = path.resolve(process.env.HOME || "", ".pm2", "logs", `${processName}-out.log`);
     const errPath = path.resolve(process.env.HOME || "", ".pm2", "logs", `${processName}-error.log`);
@@ -1233,7 +1368,11 @@ async function getProcessLogs(res, target, lines = 80) {
   const resolved = await resolveRunningProcessName(safeTarget);
   if (!resolved.ok) {
     if (resolved.code === "PM2_UNAVAILABLE" && (safeTarget === "bot" || safeTarget === "app")) {
-      return json(res, 200, { ok: true, target: safeTarget, ...unmanagedLog(safeTarget) });
+      const dockerResolved = await resolveRunningDockerName(safeTarget);
+      if (!dockerResolved.ok) return json(res, 500, { ok: false, error: dockerResolved.error });
+      const dockerLogs = await getDockerLogs(dockerResolved.containerName, safeLines);
+      if (!dockerLogs.ok) return json(res, 500, { ok: false, error: dockerLogs.error });
+      return json(res, 200, { ok: true, target: safeTarget, ...dockerLogs.data });
     }
     return json(res, 400, { ok: false, error: "Target muss bot|app|all|server sein" });
   }
@@ -1253,14 +1392,6 @@ async function getProcessLogs(res, target, lines = 80) {
 function streamProcessLogs(req, res, target, lines = 80) {
   const safeTarget = String(target || "all").toLowerCase();
   const safeLines = Math.max(10, Math.min(300, Number(lines || 80)));
-  const unmanagedLog = (t) => ({
-    ok: true,
-    processName: t === "app" ? "owner-app (self)" : "bot",
-    out: "",
-    err: "PM2-Logs sind im Docker-/Container-Modus nicht verfügbar.",
-    mode: "container",
-    managed: false,
-  });
   res.writeHead(200, {
     "Content-Type": "text/event-stream; charset=utf-8",
     "Cache-Control": "no-cache, no-transform",
@@ -1273,7 +1404,19 @@ function streamProcessLogs(req, res, target, lines = 80) {
         for (const t of ["bot", "app"]) {
           const resolved = await resolveRunningProcessName(t);
           if (!resolved.ok) {
-            logs[t] = resolved.code === "PM2_UNAVAILABLE" ? unmanagedLog(t) : { ok: false, error: resolved.error };
+            if (resolved.code === "PM2_UNAVAILABLE") {
+              const dockerResolved = await resolveRunningDockerName(t);
+              if (!dockerResolved.ok) {
+                logs[t] = { ok: false, error: dockerResolved.error };
+                continue;
+              }
+              const dockerLogs = await getDockerLogs(dockerResolved.containerName, safeLines);
+              logs[t] = dockerLogs.ok
+                ? { ok: true, processName: dockerResolved.containerName, out: dockerLogs.data.out, err: dockerLogs.data.err }
+                : { ok: false, error: dockerLogs.error };
+            } else {
+              logs[t] = { ok: false, error: resolved.error };
+            }
             continue;
           }
           const processName = resolved.processName;
@@ -1291,7 +1434,11 @@ function streamProcessLogs(req, res, target, lines = 80) {
       const resolved = await resolveRunningProcessName(safeTarget);
       if (!resolved.ok) {
         if (resolved.code === "PM2_UNAVAILABLE" && (safeTarget === "bot" || safeTarget === "app")) {
-          return { ok: true, target: safeTarget, ...unmanagedLog(safeTarget) };
+          const dockerResolved = await resolveRunningDockerName(safeTarget);
+          if (!dockerResolved.ok) return { ok: false, error: dockerResolved.error };
+          const dockerLogs = await getDockerLogs(dockerResolved.containerName, safeLines);
+          if (!dockerLogs.ok) return { ok: false, error: dockerLogs.error };
+          return { ok: true, target: safeTarget, processName: dockerResolved.containerName, out: dockerLogs.data.out, err: dockerLogs.data.err };
         }
         return { ok: false, error: resolved.error };
       }
@@ -1347,7 +1494,24 @@ async function processAction(res, target, action, session = null) {
     for (const t of ["bot", "app"]) {
       const resolved = await resolveRunningProcessName(t);
       if (!resolved.ok) {
-        results[t] = { ok: false, error: resolved.error };
+        if (resolved.code === "PM2_UNAVAILABLE") {
+          const dockerResolved = await resolveRunningDockerName(t);
+          if (!dockerResolved.ok) {
+            results[t] = { ok: false, error: dockerResolved.error };
+            continue;
+          }
+          const dockerResult = await runDocker([safeAction, dockerResolved.containerName]);
+          if (!dockerResult.ok) {
+            results[t] = { ok: false, processName: dockerResolved.containerName, error: dockerResult.stderr };
+            continue;
+          }
+          const dockerStatus = await getDockerStatus(dockerResolved.containerName);
+          results[t] = dockerStatus.ok
+            ? { ok: true, processName: dockerResolved.containerName, status: dockerStatus.data }
+            : { ok: false, processName: dockerResolved.containerName, error: dockerStatus.error };
+        } else {
+          results[t] = { ok: false, error: resolved.error };
+        }
         continue;
       }
       const processName = resolved.processName;
@@ -1385,9 +1549,23 @@ async function processAction(res, target, action, session = null) {
   const resolved = await resolveRunningProcessName(safeTarget);
   if (!resolved.ok) {
     if (resolved.code === "PM2_UNAVAILABLE") {
-      return json(res, 409, {
-        ok: false,
-        error: "Prozesssteuerung ist im Docker-/Container-Modus nicht verfügbar.",
+      const dockerResolved = await resolveRunningDockerName(safeTarget);
+      if (!dockerResolved.ok) {
+        return json(res, 500, { ok: false, error: dockerResolved.error });
+      }
+      const result = await runDocker([safeAction, dockerResolved.containerName]);
+      if (!result.ok) return json(res, 500, { ok: false, error: result.stderr });
+      const status = await getDockerStatus(dockerResolved.containerName);
+      await auditAdminAction(session, "process_action_docker", dockerResolved.containerName, {
+        target: safeTarget,
+        action: safeAction,
+      });
+      return json(res, 200, {
+        ok: true,
+        target: safeTarget,
+        processName: dockerResolved.containerName,
+        action: safeAction,
+        status: status.ok ? status.data : null,
       });
     }
     return json(res, 400, { ok: false, error: "Target muss bot|app|all|server sein" });
@@ -1439,30 +1617,26 @@ async function getServerAdminSummary(req, res) {
   const appResolved = await resolveRunningProcessName("app");
   const botStatus = botResolved.ok ? await getPm2Status(botResolved.processName) : { ok: false, error: botResolved.error };
   const appStatus = appResolved.ok ? await getPm2Status(appResolved.processName) : { ok: false, error: appResolved.error };
-  const botFallback = {
-    status: "unmanaged",
-    pid: null,
-    restarts: null,
-    uptimeSec: 0,
-    mode: "container",
-    managed: false,
-    note: "PM2 nicht verfügbar",
-  };
-  const appFallback = {
-    status: "online",
-    pid: process.pid,
-    restarts: null,
-    uptimeSec: Math.floor(process.uptime()),
-    mode: "container",
-    managed: false,
-    note: "PM2 nicht verfügbar",
-  };
-  const isBotPm2Unavailable =
-    (!botResolved.ok && botResolved.code === "PM2_UNAVAILABLE") ||
-    (!botStatus.ok && botStatus.code === "PM2_UNAVAILABLE");
-  const isAppPm2Unavailable =
-    (!appResolved.ok && appResolved.code === "PM2_UNAVAILABLE") ||
-    (!appStatus.ok && appStatus.code === "PM2_UNAVAILABLE");
+  let botData = botStatus.ok ? botStatus.data : { status: "unknown", error: botStatus.error };
+  let appData = appStatus.ok ? appStatus.data : { status: "unknown", error: appStatus.error };
+
+  const isBotPm2Unavailable = (!botResolved.ok && botResolved.code === "PM2_UNAVAILABLE") || (!botStatus.ok && botStatus.code === "PM2_UNAVAILABLE");
+  const isAppPm2Unavailable = (!appResolved.ok && appResolved.code === "PM2_UNAVAILABLE") || (!appStatus.ok && appStatus.code === "PM2_UNAVAILABLE");
+
+  if (isBotPm2Unavailable) {
+    const dockerResolved = await resolveRunningDockerName("bot");
+    if (dockerResolved.ok) {
+      const dockerStatus = await getDockerStatus(dockerResolved.containerName);
+      if (dockerStatus.ok) botData = dockerStatus.data;
+    }
+  }
+  if (isAppPm2Unavailable) {
+    const dockerResolved = await resolveRunningDockerName("app");
+    if (dockerResolved.ok) {
+      const dockerStatus = await getDockerStatus(dockerResolved.containerName);
+      if (dockerStatus.ok) appData = dockerStatus.data;
+    }
+  }
   return json(res, 200, {
     ok: true,
     server: {
@@ -1475,8 +1649,8 @@ async function getServerAdminSummary(req, res) {
       rebootAllowed: OWNER_ALLOW_SERVER_REBOOT,
     },
     processes: {
-      bot: botStatus.ok ? botStatus.data : (isBotPm2Unavailable ? botFallback : { status: "unknown", error: botStatus.error }),
-      app: appStatus.ok ? appStatus.data : (isAppPm2Unavailable ? appFallback : { status: "unknown", error: appStatus.error }),
+      bot: botData,
+      app: appData,
     },
   });
 }

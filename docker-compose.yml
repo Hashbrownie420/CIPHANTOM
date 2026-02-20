@@ -21,6 +21,7 @@ services:
     volumes:
       - ./data:/app/data
       - ./owner-app/android:/app/owner-app/android:ro
+      - /var/run/docker.sock:/var/run/docker.sock
 
   bot:
     build:

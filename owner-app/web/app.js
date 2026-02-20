@@ -1403,6 +1403,18 @@ async function processAction(target, action, msgId, statusId, logsId) {
     await loadProcessPanel(target, statusId, logsId, msgId);
     setMsg(msgId, `${target.toUpperCase()} ${action} ausgeführt.`, true);
   } catch (err) {
+    const msg = String(err?.message || "");
+    if (
+      target === "app" &&
+      action === "restart" &&
+      /networkerror|failed to fetch|load failed|network request failed/i.test(msg)
+    ) {
+      setMsg(msgId, "App wird neu gestartet, Verbindung kurz unterbrochen. Prüfe erneut in 5 Sekunden…", true);
+      setTimeout(() => {
+        loadProcessPanel(target, statusId, logsId, msgId).catch(() => {});
+      }, 5000);
+      return;
+    }
     setMsg(msgId, err.message || "Aktion fehlgeschlagen");
   }
 }

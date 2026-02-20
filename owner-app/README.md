@@ -13,7 +13,7 @@ Owner-Panel mit Login und Admin-Tools.
 - Server- und Bot-Infos anzeigen
 - API-Basisschutz: Rate-Limits auf Login/API + Security-Header
 - Server-Admin-Tab (Bot/App/Alles restart, Logs, IPs, optional Server-Reboot)
-  - Hinweis: Prozesssteuerung benötigt PM2. Im reinen Docker-Modus zeigt das Panel stattdessen "unmanaged"-Status.
+  - Im Docker-Betrieb nutzt das Panel Docker-Container-Steuerung und Docker-Logs (über `/var/run/docker.sock`).
 - Erweiterte Admin-API:
   - `GET /api/admin/summary`
   - `GET /api/admin/alerts`
