@@ -831,19 +831,45 @@ async function runPm2(args) {
   }
 }
 
-async function runDocker(args) {
-  try {
-    const { stdout, stderr } = await execFileAsync("docker", args, { maxBuffer: 1024 * 1024 * 16 });
-    return { ok: true, code: null, stdout: String(stdout || ""), stderr: String(stderr || "") };
-  } catch (err) {
-    const code = String(err?.code || "");
-    return {
-      ok: false,
-      code: code || "DOCKER_FAILED",
-      stdout: String(err?.stdout || ""),
-      stderr: String(err?.stderr || err?.message || "docker failed"),
+const DOCKER_SOCK = process.env.DOCKER_SOCK || "/var/run/docker.sock";
+const DOCKER_API_PREFIX = process.env.DOCKER_API_PREFIX || "/v1.44";
+
+function dockerApiRequest(method, apiPath, { query = null, body = null } = {}) {
+  return new Promise((resolve, reject) => {
+    const qs = query ? `?${new URLSearchParams(query).toString()}` : "";
+    const pathWithVersion = `${DOCKER_API_PREFIX}${apiPath}${qs}`;
+    const pathFallback = `${apiPath}${qs}`;
+    const payload = body == null ? null : JSON.stringify(body);
+
+    const makeReq = (reqPath, isRetry = false) => {
+      const req = http.request(
+        {
+          socketPath: DOCKER_SOCK,
+          path: reqPath,
+          method,
+          headers: payload ? { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(payload) } : {},
+        },
+        (res) => {
+          let data = "";
+          res.setEncoding("utf8");
+          res.on("data", (chunk) => {
+            data += chunk;
+          });
+          res.on("end", () => {
+            if (!isRetry && res.statusCode === 404 && reqPath.startsWith(DOCKER_API_PREFIX)) {
+              return makeReq(pathFallback, true);
+            }
+            resolve({ status: Number(res.statusCode || 0), body: data, headers: res.headers || {} });
+          });
+        }
+      );
+      req.on("error", reject);
+      if (payload) req.write(payload);
+      req.end();
     };
-  }
+
+    makeReq(pathWithVersion);
+  });
 }
 
 function resolveDockerCandidates(target) {
@@ -856,34 +882,65 @@ async function resolveRunningDockerName(target) {
   const candidates = resolveDockerCandidates(target);
   if (!candidates) return { ok: false, code: "DOCKER_BAD_TARGET", error: "Target muss bot|app sein" };
   for (const name of candidates) {
-    const res = await runDocker(["inspect", name, "--format", "{{.Name}}"]);
-    if (res.ok) return { ok: true, code: null, containerName: name };
+    try {
+      const res = await dockerApiRequest("GET", `/containers/${encodeURIComponent(name)}/json`);
+      if (res.status >= 200 && res.status < 300) return { ok: true, code: null, containerName: name };
+    } catch {}
   }
   // Fallback: discover by compose service label (works across varying container names)
   const service = String(target || "").toLowerCase() === "app" ? "owner-app" : "bot";
-  const byLabel = await runDocker([
-    "ps",
-    "-a",
-    "--filter",
-    `label=com.docker.compose.service=${service}`,
-    "--format",
-    "{{.Names}}",
-  ]);
-  if (byLabel.ok) {
-    const first = String(byLabel.stdout || "")
-      .split(/\r?\n/)
-      .map((s) => s.trim())
-      .find(Boolean);
-    if (first) return { ok: true, code: null, containerName: first };
-  }
+  try {
+    const filters = JSON.stringify({ label: [`com.docker.compose.service=${service}`] });
+    const byLabel = await dockerApiRequest("GET", "/containers/json", { query: { all: "1", filters } });
+    if (byLabel.status >= 200 && byLabel.status < 300) {
+      const arr = JSON.parse(byLabel.body || "[]");
+      const first = Array.isArray(arr) ? arr[0] : null;
+      const name = String(first?.Names?.[0] || "").replace(/^\/+/, "");
+      if (name) return { ok: true, code: null, containerName: name };
+    }
+  } catch {}
+  // Last fallback: get all containers and match by suffix
+  try {
+    const all = await dockerApiRequest("GET", "/containers/json", { query: { all: "1" } });
+    if (all.status >= 200 && all.status < 300) {
+      const arr = JSON.parse(all.body || "[]");
+      const match = (Array.isArray(arr) ? arr : []).find((c) => {
+        const names = Array.isArray(c?.Names) ? c.Names.map((n) => String(n || "").replace(/^\/+/, "")) : [];
+        return names.some((n) => candidates.some((cand) => n === cand || n.endsWith(`_${cand}_1`) || n.includes(cand)));
+      });
+      const name = String(match?.Names?.[0] || "").replace(/^\/+/, "");
+      if (name) return { ok: true, code: null, containerName: name };
+    }
+  } catch {}
   return { ok: false, code: "DOCKER_CONTAINER_NOT_FOUND", error: "Container nicht gefunden" };
 }
 
-async function getDockerStatus(containerName) {
-  const res = await runDocker(["inspect", containerName, "--format", "{{json .State}}"]);
-  if (!res.ok) return { ok: false, code: String(res.code || "DOCKER_FAILED"), error: res.stderr };
+async function dockerContainerAction(containerName, action) {
+  const map = { start: "start", stop: "stop", restart: "restart" };
+  const safe = map[String(action || "").toLowerCase()];
+  if (!safe) return { ok: false, code: "DOCKER_BAD_ACTION", error: "Ungültige Docker-Aktion" };
   try {
-    const state = JSON.parse(String(res.stdout || "").trim() || "{}");
+    const res = await dockerApiRequest("POST", `/containers/${encodeURIComponent(containerName)}/${safe}`);
+    if (res.status >= 200 && res.status < 300) return { ok: true, code: null, error: "" };
+    return { ok: false, code: `DOCKER_HTTP_${res.status}`, error: res.body || `Docker API ${res.status}` };
+  } catch (err) {
+    return { ok: false, code: "DOCKER_FAILED", error: String(err?.message || err || "docker action failed") };
+  }
+}
+
+async function getDockerStatus(containerName) {
+  let res;
+  try {
+    res = await dockerApiRequest("GET", `/containers/${encodeURIComponent(containerName)}/json`);
+  } catch (err) {
+    return { ok: false, code: "DOCKER_FAILED", error: String(err?.message || err || "docker inspect failed") };
+  }
+  if (!(res.status >= 200 && res.status < 300)) {
+    return { ok: false, code: `DOCKER_HTTP_${res.status}`, error: res.body || "docker inspect failed" };
+  }
+  try {
+    const inspect = JSON.parse(String(res.body || "").trim() || "{}");
+    const state = inspect?.State || {};
     const startedAt = String(state?.StartedAt || "");
     const startedMs = Date.parse(startedAt);
     const uptimeSec = Number.isFinite(startedMs) ? Math.max(0, Math.floor((Date.now() - startedMs) / 1000)) : 0;
@@ -892,9 +949,9 @@ async function getDockerStatus(containerName) {
       code: null,
       data: {
         name: containerName,
-        status: String(state?.Status || "unknown"),
+        status: String(state?.Status || inspect?.Status || "unknown"),
         uptimeSec,
-        restarts: Number(state?.RestartCount ?? 0),
+        restarts: Number(state?.RestartCount ?? inspect?.RestartCount ?? 0),
         pid: Number(state?.Pid ?? 0) || null,
         mode: "docker",
         managed: true,
@@ -907,11 +964,18 @@ async function getDockerStatus(containerName) {
 
 async function getDockerLogs(containerName, lines = 80) {
   const safeLines = Math.max(10, Math.min(500, Number(lines || 80)));
-  const res = await runDocker(["logs", "--tail", String(safeLines), containerName]);
-  if (!res.ok) return { ok: false, code: String(res.code || "DOCKER_FAILED"), error: res.stderr };
-  const combined = [String(res.stdout || "").trimEnd(), String(res.stderr || "").trimEnd()]
-    .filter(Boolean)
-    .join("\n");
+  let res;
+  try {
+    res = await dockerApiRequest("GET", `/containers/${encodeURIComponent(containerName)}/logs`, {
+      query: { stdout: "1", stderr: "1", tail: String(safeLines), timestamps: "1" },
+    });
+  } catch (err) {
+    return { ok: false, code: "DOCKER_FAILED", error: String(err?.message || err || "docker logs failed") };
+  }
+  if (!(res.status >= 200 && res.status < 300)) {
+    return { ok: false, code: `DOCKER_HTTP_${res.status}`, error: res.body || "docker logs failed" };
+  }
+  const combined = String(res.body || "").trimEnd();
   return {
     ok: true,
     code: null,
@@ -1517,9 +1581,9 @@ async function processAction(res, target, action, session = null) {
             results[t] = { ok: false, error: dockerResolved.error };
             continue;
           }
-          const dockerResult = await runDocker([safeAction, dockerResolved.containerName]);
+          const dockerResult = await dockerContainerAction(dockerResolved.containerName, safeAction);
           if (!dockerResult.ok) {
-            results[t] = { ok: false, processName: dockerResolved.containerName, error: dockerResult.stderr };
+            results[t] = { ok: false, processName: dockerResolved.containerName, error: dockerResult.error };
             continue;
           }
           const dockerStatus = await getDockerStatus(dockerResolved.containerName);
@@ -1570,8 +1634,8 @@ async function processAction(res, target, action, session = null) {
       if (!dockerResolved.ok) {
         return json(res, 500, { ok: false, error: dockerResolved.error });
       }
-      const result = await runDocker([safeAction, dockerResolved.containerName]);
-      if (!result.ok) return json(res, 500, { ok: false, error: result.stderr });
+      const result = await dockerContainerAction(dockerResolved.containerName, safeAction);
+      if (!result.ok) return json(res, 500, { ok: false, error: result.error });
       const status = await getDockerStatus(dockerResolved.containerName);
       await auditAdminAction(session, "process_action_docker", dockerResolved.containerName, {
         target: safeTarget,
