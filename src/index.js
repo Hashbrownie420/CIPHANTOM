@@ -5205,13 +5205,13 @@ async function start() {
           break;
         }
         const newPass = args.join(" ").trim();
-        if (!newPass || newPass.length < 8) {
+        if (!newPass || newPass.length < 4) {
           await sendText(
             sock,
             chatId,
             m,
             "Usage",
-            [`${prefix}ownerpass <neues_passwort>`, "Mindestens 8 Zeichen."],
+            [`${prefix}ownerpass <neues_passwort>`, "Mindestens 4 Zeichen."],
             "",
             "🔐",
           );
@@ -5246,7 +5246,7 @@ async function start() {
         const nextName = (parts[0] || "").trim();
         const nextPass = parts.slice(1).join(rawInput.includes("|") ? "|" : " ").trim();
 
-        if (!nextName || !nextPass || nextName.length > 30 || nextPass.length < 8) {
+        if (!nextName || !nextPass || nextName.length > 30 || nextPass.length < 4) {
           await sendText(
             sock,
             chatId,
@@ -5255,7 +5255,7 @@ async function start() {
             [
               `${prefix}ownerlogin <name> | <passwort>`,
               `Alias: ${prefix}ownercred <name> | <passwort>`,
-              "Name max. 30 Zeichen, Passwort mind. 8 Zeichen.",
+              "Name max. 30 Zeichen, Passwort mind. 4 Zeichen.",
             ],
             "",
             "🔐",
