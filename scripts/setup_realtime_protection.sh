@@ -35,6 +35,26 @@ if [[ ! -f "$NGINX_LOG" ]]; then
     NGINX_LOG="$ALT_LOG"
   fi
 fi
+if [[ ! -f "$NGINX_LOG" ]]; then
+  CFG_LOG="$(awk '
+    /access_log/ {
+      for (i = 1; i <= NF; i++) {
+        if ($i ~ /^\//) {
+          gsub(/;$/, "", $i);
+          print $i;
+          exit;
+        }
+      }
+    }
+  ' /etc/nginx/nginx.conf /etc/nginx/sites-enabled/* 2>/dev/null | head -n1 || true)"
+  if [[ -n "$CFG_LOG" ]]; then
+    NGINX_LOG="$CFG_LOG"
+  fi
+fi
+if [[ ! -f "$NGINX_LOG" ]]; then
+  sudo mkdir -p "$(dirname "$NGINX_LOG")"
+  sudo touch "$NGINX_LOG"
+fi
 
 echo "[server] install fail2ban/sqlite3 if needed"
 sudo apt-get update
@@ -135,7 +155,7 @@ F2
 
 echo "[server] deploy fail2ban jails"
 sudo mkdir -p /etc/fail2ban/jail.d
-sudo tee /etc/fail2ban/jail.d/cipherphantom-realtime.local >/dev/null <<'JAIL'
+sudo tee /etc/fail2ban/jail.d/cipherphantom-realtime.local >/dev/null <<JAIL
 [DEFAULT]
 banaction = ufw
 ignoreip = 127.0.0.1/8 ::1
