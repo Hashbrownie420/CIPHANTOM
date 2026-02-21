@@ -9,16 +9,32 @@ set -euo pipefail
 SERVER_USER="${SERVER_USER:-owner}"
 SERVER_HOST="${SERVER_HOST:-130.61.157.46}"
 SERVER_SSH="${SERVER_USER}@${SERVER_HOST}"
+REMOTE_SCRIPT="/tmp/cipherphantom_setup_realtime_protection.sh"
 
 echo "[setup] target=${SERVER_SSH}"
 
-ssh "${SERVER_SSH}" 'bash -s' <<'EOF'
+TMP_LOCAL="$(mktemp)"
+trap 'rm -f "$TMP_LOCAL"' EXIT
+
+cat >"$TMP_LOCAL" <<'EOF'
+#!/usr/bin/env bash
 set -euo pipefail
+
+export LANG=C.UTF-8
+export LC_ALL=C.UTF-8
 
 PROJECT_DIR="$HOME/CIPHERPHANTOM"
 DB_FILE="$PROJECT_DIR/data/cipherphantom.db"
 ENV_FILE="$PROJECT_DIR/.env"
 INCIDENT_LOG="$PROJECT_DIR/data/security_incidents.log"
+NGINX_LOG="/var/log/nginx/access.log"
+
+if [[ ! -f "$NGINX_LOG" ]]; then
+  ALT_LOG="$(ls -1 /var/log/nginx/*access*.log 2>/dev/null | head -n1 || true)"
+  if [[ -n "$ALT_LOG" ]]; then
+    NGINX_LOG="$ALT_LOG"
+  fi
+fi
 
 echo "[server] install fail2ban/sqlite3 if needed"
 sudo apt-get update
@@ -128,7 +144,7 @@ ignoreip = 127.0.0.1/8 ::1
 enabled = true
 filter = cipherphantom-owner-auth
 port = http,https
-logpath = /var/log/nginx/access.log
+logpath = ${NGINX_LOG}
 backend = auto
 findtime = 120
 maxretry = 8
@@ -140,7 +156,7 @@ action = ufw[blocktype=deny]
 enabled = true
 filter = cipherphantom-owner-flood
 port = http,https
-logpath = /var/log/nginx/access.log
+logpath = ${NGINX_LOG}
 backend = auto
 findtime = 20
 maxretry = 350
@@ -151,7 +167,19 @@ JAIL
 
 echo "[server] restart fail2ban"
 sudo systemctl enable --now fail2ban
-sudo systemctl restart fail2ban
+sudo systemctl restart fail2ban || true
+for _ in $(seq 1 10); do
+  if sudo fail2ban-client ping >/dev/null 2>&1; then
+    break
+  fi
+  sleep 1
+done
+if ! sudo fail2ban-client ping >/dev/null 2>&1; then
+  echo "[server] fail2ban did not start, diagnostics:"
+  sudo systemctl status fail2ban --no-pager -l || true
+  sudo journalctl -u fail2ban -n 120 --no-pager || true
+  exit 1
+fi
 sudo fail2ban-client ping
 sudo fail2ban-client status
 sudo fail2ban-client status cipherphantom-owner-auth || true
@@ -162,5 +190,9 @@ sqlite3 "$DB_FILE" "SELECT name FROM sqlite_master WHERE type='table' AND name='
 
 echo "[server] realtime protection setup finished"
 EOF
+
+chmod +x "$TMP_LOCAL"
+scp "$TMP_LOCAL" "${SERVER_SSH}:${REMOTE_SCRIPT}" >/dev/null
+ssh -tt "${SERVER_SSH}" "bash '${REMOTE_SCRIPT}'; rc=\$?; rm -f '${REMOTE_SCRIPT}'; exit \$rc"
 
 echo "[setup] done"
