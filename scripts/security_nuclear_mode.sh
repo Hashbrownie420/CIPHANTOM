@@ -11,6 +11,7 @@ SERVER_HOST="${SERVER_HOST:-130.61.157.46}"
 SERVER_USER="${SERVER_USER:-owner}"
 OWNER_USER="${OWNER_USER:-cipherowner}"
 OWNER_PASS="${OWNER_PASS:-}"
+BASE_URL="${BASE_URL:-http://${SERVER_HOST}}"
 RUN_CHAOS="${RUN_CHAOS:-1}"
 LOAD_REQUESTS="${LOAD_REQUESTS:-3000}"
 LOAD_CONCURRENCY="${LOAD_CONCURRENCY:-180}"
@@ -34,6 +35,21 @@ mkdir -p "$ROOT"
 SUMMARY_TSV="$ROOT/summary.tsv"
 SUMMARY_TXT="$ROOT/summary.txt"
 echo -e "round\trc\tscore\tverdict\treport_dir\tlog_file" > "$SUMMARY_TSV"
+
+INTERRUPTED=0
+trap 'echo; echo "[nuclear] Abbruchsignal erhalten. Erzeuge Teilsummary..."; INTERRUPTED=1' INT TERM
+
+LOGIN_PRECHECK_JSON="$ROOT/login_precheck.json"
+curl -sS -X POST "${BASE_URL}/api/login" \
+  -H "Content-Type: application/json" \
+  -d "{\"username\":\"${OWNER_USER}\",\"password\":\"${OWNER_PASS}\"}" \
+  -o "$LOGIN_PRECHECK_JSON" || true
+LOGIN_TOKEN="$(sed -n 's/.*"token":"\([^"]*\)".*/\1/p' "$LOGIN_PRECHECK_JSON")"
+if [[ -z "$LOGIN_TOKEN" ]]; then
+  echo "[nuclear] Login-Precheck fehlgeschlagen. OWNER_USER/OWNER_PASS prüfen." >&2
+  echo "[nuclear] Details: $LOGIN_PRECHECK_JSON" >&2
+  exit 1
+fi
 
 echo "[nuclear] start rounds=$ROUNDS root=$ROOT"
 
@@ -81,6 +97,10 @@ for round in $(seq 1 "$ROUNDS"); do
   fi
 
   echo -e "${rid}\t${rc}\t${score}\t${verdict}\t${report_dir}\t${run_log}" >> "$SUMMARY_TSV"
+
+  if (( INTERRUPTED == 1 )); then
+    break
+  fi
 done
 
 go_count="$(awk -F'\t' 'NR>1 && $4=="GO" {c++} END {print c+0}' "$SUMMARY_TSV")"
@@ -98,6 +118,11 @@ err_count="$(awk -F'\t' 'NR>1 && $4!="GO" {c++} END {print c+0}' "$SUMMARY_TSV")
 echo
 echo "[nuclear] summary_tsv=$SUMMARY_TSV"
 echo "[nuclear] summary_txt=$SUMMARY_TXT"
+
+if (( INTERRUPTED == 1 )); then
+  echo "[nuclear] Ergebnis: abgebrochen (Teilsummary geschrieben)" >&2
+  exit 130
+fi
 
 if [[ "$STRICT" == "1" ]] && (( err_count > 0 )); then
   echo "[nuclear] Ergebnis: NICHT ALLE RUNDEN GO (STRICT=1)" >&2
